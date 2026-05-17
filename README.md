@@ -66,11 +66,11 @@ The frontend will be available at `http://localhost:5173`.
 
 AgentRQ is designed for seamless integration as a **Claude Channel**. This allows your AI agents to see tasks assigned to them and respond directly within your Claude session.
 
-Each workspace has its own MCP URL and token (visible in the workspace setup modal). In production, these follow the pattern `https://WORKSPACE_ID.mcp.agentrq.com/mcp`.
+Each workspace has its own MCP URL and token (visible in the workspace setup modal). In production, these follow the pattern `https://WORKSPACE_ID.mcp.agentrq.com/`.
 
 ### Step 1 — `.mcp.json`
 
-Create a `.mcp.json` file in your local project directory (the leading dot is required). Each project gets its own file so Claude instances stay isolated per workspace. Replace `YOUR_MCP_URL` below with the full URL shown in the setup modal (e.g. `https://WORKSPACE_ID.mcp.agentrq.com/mcp?token=TOKEN`).
+Create a `.mcp.json` file in your local project directory (the leading dot is required). Each project gets its own file so Claude instances stay isolated per workspace. Replace `YOUR_MCP_URL` below with the full URL shown in the setup modal (e.g. `https://WORKSPACE_ID.mcp.agentrq.com/?token=TOKEN`).
 
 ```json
 {
@@ -150,6 +150,81 @@ The gateway will automatically:
 - Connect to your AgentRQ workspace via the URL in `.mcp.json`.
 - Spawn the agent subprocess and bridge standard I/O.
 - Forward task assignments, messages, and permission requests in real-time.
+
+## 🌌 Codex Gateway (Bridge for OpenAI Codex)
+
+Similar to the ACP Gateway, the `@agentrq/codex-gateway` connects [OpenAI Codex](https://github.com/openai/codex) to AgentRQ workspaces by bridging the Model Context Protocol (MCP) with the Codex app-server protocol.
+
+### Installation
+
+```bash
+npm install -g @agentrq/codex-gateway@latest
+```
+
+### Setup
+
+**1. Configure agentrq MCP server for Codex (project-level)**
+
+Codex reads project-level MCP server config from `.codex/config.toml`. Create this file so the Codex agent can use agentrq tools directly during task execution (replace `<WORKSPACEID>` and `<TOKEN>` with your values from the agentrq dashboard):
+
+```bash
+mkdir -p .codex
+cat >> .codex/config.toml << 'EOF'
+
+[mcp_servers.agentrq-workspace]
+url = "https://<WORKSPACEID>.mcp.agentrq.com/?token=<TOKEN>"
+
+[mcp_servers.agentrq-<ID>.tools.updateTaskStatus]
+approval_mode = "approve"
+
+[mcp_servers.agentrq-<ID>.tools.getWorkspace]
+approval_mode = "approve"
+
+[mcp_servers.agentrq-<ID>.tools.reply]
+approval_mode = "approve"
+
+[mcp_servers.agentrq-<ID>.tools.createTask]
+approval_mode = "approve"
+
+[mcp_servers.agentrq-<ID>.tools.downloadAttachment]
+approval_mode = "approve"
+
+[mcp_servers.agentrq-<ID>.tools.getTaskMessages]
+approval_mode = "approve"
+
+[mcp_servers.agentrq-<ID>.tools.getNextTask]
+approval_mode = "approve"
+EOF
+```
+
+**2. Configure the gateway's agentrq connection**
+
+Create a `.mcp.json` in your project root so `codex-gateway` can connect to the same agentrq workspace:
+
+```json
+{
+  "mcpServers": {
+    "agentrq": {
+      "type": "http",
+      "url": "https://<WORKSPACEID>.mcp.agentrq.com/mcp?token=<TOKEN>"
+    }
+  }
+}
+```
+
+> **Note:** `.mcp.json` is used by `codex-gateway` to receive tasks. `.codex/config.toml` is used by the Codex agent itself to call agentrq tools (e.g. `reply`, `updateTaskStatus`) during execution.
+
+### Usage
+
+Run `codex-gateway` from your agentrq workspace root (the directory containing `.mcp.json`):
+
+```bash
+# Default: runs `codex app-server`
+codex-gateway
+
+# Custom codex command
+codex-gateway -- codex app-server
+```
 
 ## 👑 Supervisor (CoreMCP)
 

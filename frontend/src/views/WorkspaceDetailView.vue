@@ -121,7 +121,7 @@
            </div>
            <h3 class="text-xl font-black text-gray-800 dark:text-zinc-100 tracking-tight">{{ tasks.length === 0 ? 'Connect your first Agent' : 'Agent is Offline' }}</h3>
            <p class="text-sm text-gray-500 dark:text-zinc-400 mt-2 max-w-[420px] leading-relaxed font-medium">
-             {{ tasks.length === 0 ? 'This workspace is currently offline. Connect Claude or Gemini via MCP to start automating tasks.' : 'This workspace is currently offline. Reconnect Claude or Gemini via MCP to start automating tasks.' }}
+            {{ tasks.length === 0 ? 'This workspace is currently offline. Connect Claude, Gemini, or Codex via MCP to start automating tasks.' : 'This workspace is currently offline. Reconnect Claude, Gemini, or Codex via MCP to start automating tasks.' }}
            </p>
            <button @click="router.push({ path: `/workspaces/${workspaceId}/settings`, query: { tab: 'setup' } })" class="mt-8 px-8 py-3 bg-black dark:bg-white text-white dark:text-zinc-900 rounded-sm text-[10px] font-black uppercase tracking-widest shadow-lg hover:shadow-xl active:scale-95 transition-all">
              Open Setup Guide

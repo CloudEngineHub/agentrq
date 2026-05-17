@@ -62,6 +62,7 @@
                   <div class="flex gap-4 border-b border-gray-100 dark:border-zinc-800 pb-4">
                     <button type="button" @click="activeConnectionTab = 'claude'" :class="activeConnectionTab === 'claude' ? 'text-black dark:text-white border-black dark:border-white' : 'text-gray-400 border-transparent hover:text-gray-600 dark:hover:text-zinc-300'" class="pb-2 text-[10px] font-bold uppercase tracking-widest border-b-2 transition-all">Claude</button>
                     <button type="button" @click="activeConnectionTab = 'gemini'" :class="activeConnectionTab === 'gemini' ? 'text-black dark:text-white border-black dark:border-white' : 'text-gray-400 border-transparent hover:text-gray-600 dark:hover:text-zinc-300'" class="pb-2 text-[10px] font-bold uppercase tracking-widest border-b-2 transition-all">Gemini / ACP</button>
+                    <button type="button" @click="activeConnectionTab = 'codex'" :class="activeConnectionTab === 'codex' ? 'text-black dark:text-white border-black dark:border-white' : 'text-gray-400 border-transparent hover:text-gray-600 dark:hover:text-zinc-300'" class="pb-2 text-[10px] font-bold uppercase tracking-widest border-b-2 transition-all">Codex</button>
                   </div>
 
                   <section class="space-y-4 min-w-0 w-full overflow-hidden">
@@ -91,10 +92,24 @@
                     </div>
                   </section>
 
+                  <section v-if="activeConnectionTab === 'codex'" class="space-y-4 min-w-0 w-full overflow-hidden">
+                    <h3 class="text-[10px] font-bold text-gray-400 dark:text-zinc-500 uppercase tracking-widest ml-1">2. Codex Config</h3>
+                    <p class="text-[11px] text-gray-500 dark:text-zinc-400 font-medium px-1">Add this to <code class="bg-gray-100 dark:bg-zinc-800 px-1 py-0.5 rounded text-gray-900 dark:text-white">.codex/config.toml</code> to allow tool usage.</p>
+                    <div class="bg-gray-50 dark:bg-zinc-800/50 rounded-sm p-5 relative group border border-gray-200 dark:border-zinc-800 w-full max-w-full overflow-hidden">
+                      <div class="flex justify-between items-center mb-4">
+                        <span class="text-[10px] font-semibold text-gray-500 dark:text-zinc-500 font-mono">config.toml</span>
+                        <button type="button" @click="copyToClipboard(codexConfigToml, 'codexConfig')" class="text-[10px] font-bold text-gray-400 hover:text-black dark:text-zinc-400 dark:hover:text-white transition-colors uppercase tracking-widest">
+                          {{ copiedState.codexConfig ? 'Copied!' : 'Copy Config' }}
+                        </button>
+                      </div>
+                      <pre class="text-[11px] text-gray-800 dark:text-zinc-300 font-mono leading-relaxed p-1 overflow-x-auto custom-scrollbar whitespace-pre max-w-full block"><code>{{ codexConfigToml }}</code></pre>
+                    </div>
+                  </section>
+
                   <section class="space-y-4 bg-gray-50 dark:bg-zinc-800/30 p-6 rounded-sm border border-gray-100 dark:border-zinc-800">
                     <h3 class="text-[10px] font-bold text-gray-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-2">
                       <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                      {{ activeConnectionTab === 'claude' ? 'Start Command' : 'ACP Gateway Setup' }}
+                      {{ activeConnectionTab === 'claude' ? 'Start Command' : (activeConnectionTab === 'codex' ? 'Codex Gateway Setup' : 'ACP Gateway Setup') }}
                     </h3>
                     
                     <div v-if="activeConnectionTab === 'claude'" class="space-y-3 min-w-0">
@@ -106,6 +121,31 @@
                         <button type="button" @click="copyToClipboard(startCommand, 'command')" class="text-[9px] font-bold uppercase tracking-widest pl-4 shrink-0 transition-colors" :class="copiedState.command ? 'text-green-500' : 'text-gray-400 hover:text-black dark:hover:text-white'">
                           {{ copiedState.command ? 'Copied!' : 'Copy' }}
                         </button>
+                      </div>
+                    </div>
+
+                    <div v-else-if="activeConnectionTab === 'codex'" class="space-y-4 min-w-0">
+                      <div class="space-y-2">
+                        <p class="text-[11px] text-gray-600 dark:text-zinc-400 font-medium">1. Install the gateway:</p>
+                        <div class="bg-white dark:bg-zinc-900 p-3 rounded-sm border border-gray-200 dark:border-zinc-700 flex items-center justify-between group shadow-sm overflow-hidden">
+                          <div class="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+                            <code class="text-[10px] text-gray-900 dark:text-white font-bold whitespace-nowrap">npm install -g @agentrq/codex-gateway@latest</code>
+                          </div>
+                          <button type="button" @click="copyToClipboard('npm install -g @agentrq/codex-gateway@latest', 'codexInstall')" class="text-[9px] font-bold uppercase tracking-widest pl-4 shrink-0 transition-colors" :class="copiedState.codexInstall ? 'text-green-500' : 'text-gray-400 hover:text-black dark:hover:text-white'">
+                            {{ copiedState.codexInstall ? 'Copied!' : 'Copy' }}
+                          </button>
+                        </div>
+                      </div>
+                      <div class="space-y-2">
+                        <p class="text-[11px] text-gray-600 dark:text-zinc-400 font-medium">2. Start the bridge:</p>
+                        <div class="bg-white dark:bg-zinc-900 p-3 rounded-sm border border-gray-200 dark:border-zinc-700 flex items-center justify-between group shadow-sm overflow-hidden">
+                          <div class="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+                            <code class="text-[10px] text-gray-900 dark:text-white font-bold whitespace-nowrap">codex-gateway -- codex app-server</code>
+                          </div>
+                          <button type="button" @click="copyToClipboard('codex-gateway -- codex app-server', 'codexStart')" class="text-[9px] font-bold uppercase tracking-widest pl-4 shrink-0 transition-colors" :class="copiedState.codexStart ? 'text-green-500' : 'text-gray-400 hover:text-black dark:hover:text-white'">
+                            {{ copiedState.codexStart ? 'Copied!' : 'Copy' }}
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -319,7 +359,10 @@ const copiedState = ref({
   permissions: false,
   command: false,
   gatewayInstall: false,
-  gatewayStart: false
+  gatewayStart: false,
+  codexConfig: false,
+  codexInstall: false,
+  codexStart: false
 });
 
 const authenticatedUrl = computed(() => {
@@ -358,6 +401,32 @@ const permissionsConfig = computed(() => ({
 }));
 
 const permissionsConfigJson = computed(() => JSON.stringify(permissionsConfig.value, null, 2));
+
+const codexConfigToml = computed(() => {
+  return `[mcp_servers.${serverName.value}]
+url = "${authenticatedUrl.value}"
+
+[mcp_servers.${serverName.value}.tools.updateTaskStatus]
+approval_mode = "approve"
+
+[mcp_servers.${serverName.value}.tools.getWorkspace]
+approval_mode = "approve"
+
+[mcp_servers.${serverName.value}.tools.reply]
+approval_mode = "approve"
+
+[mcp_servers.${serverName.value}.tools.createTask]
+approval_mode = "approve"
+
+[mcp_servers.${serverName.value}.tools.downloadAttachment]
+approval_mode = "approve"
+
+[mcp_servers.${serverName.value}.tools.getTaskMessages]
+approval_mode = "approve"
+
+[mcp_servers.${serverName.value}.tools.getNextTask]
+approval_mode = "approve"`;
+});
 
 function copyToClipboard(text, key) {
   navigator.clipboard.writeText(text);
