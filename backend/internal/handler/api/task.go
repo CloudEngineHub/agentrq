@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	zlog "github.com/rs/zerolog/log"
+
 	entity "github.com/agentrq/agentrq/backend/internal/data/entity/crud"
 	view "github.com/agentrq/agentrq/backend/internal/data/view/api"
 	mapper "github.com/agentrq/agentrq/backend/internal/mapper/api"
@@ -63,6 +65,8 @@ func (h *handler) createTask() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.CreateTask(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to fetch attachment")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -125,6 +129,12 @@ func (h *handler) getTask() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.GetTask(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to create task")
+			c.Set(_headerContentType, _mimeJSON)
+			zlog.Error().Err(err).Msg("Failed to list tasks")
+			c.Set(_headerContentType, _mimeJSON)
+			zlog.Error().Err(err).Msg("Failed to get task")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -147,6 +157,8 @@ func (h *handler) respondToTask() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.RespondToTask(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to respond to task")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -187,6 +199,8 @@ func (h *handler) replyToTask() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.ReplyToTask(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to reply to task")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -224,6 +238,8 @@ func (h *handler) updateTaskStatus() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.UpdateTaskStatus(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to update task status")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -253,6 +269,8 @@ func (h *handler) updateTaskOrder() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.UpdateTaskOrder(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to update task order")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -282,6 +300,8 @@ func (h *handler) updateTaskAssignee() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.UpdateTaskAssignee(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to update task assignee")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -318,6 +338,8 @@ func (h *handler) updateTaskAllowAllCommands() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.UpdateTaskAllowAllCommands(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to update task allow all")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -346,6 +368,8 @@ func (h *handler) deleteTask() fiber.Handler {
 		ctx, cancel := newContext(c)
 		defer cancel()
 		if _, err := h.crud.DeleteTask(ctx, *rq); err != nil {
+			zlog.Error().Err(err).Msg("Failed to delete task")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
@@ -441,7 +465,11 @@ func (h *handler) getAttachment() fiber.Handler {
 			UserID:       userID,
 		})
 		if err != nil {
-			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": err.Error()})
+			zlog.Error().Err(err).Msg("Failed to fetch attachment")
+			c.Set(_headerContentType, _mimeJSON)
+			e, status := mapper.FromErrorToHTTPResponse(err)
+			c.Status(status)
+			return c.Send(e)
 		}
 
 		c.Set("Content-Type", res.MimeType)
@@ -469,7 +497,11 @@ func (h *handler) sendPermissionVerdict() fiber.Handler {
 			if strings.Contains(err.Error(), "(expired)") {
 				return c.Status(http.StatusGone).JSON(fiber.Map{"error": "This action request has expired (server was likely restarted). The agent must re-request this action."})
 			}
-			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+			zlog.Error().Err(err).Msg("Failed to send permission verdict")
+			c.Set(_headerContentType, _mimeJSON)
+			e, status := mapper.FromErrorToHTTPResponse(err)
+			c.Status(status)
+			return c.Send(e)
 		}
 
 		return c.SendStatus(http.StatusOK)
@@ -489,6 +521,8 @@ func (h *handler) updateScheduledTask() fiber.Handler {
 		defer cancel()
 		rs, err := h.crud.UpdateScheduledTask(ctx, *rq)
 		if err != nil {
+			zlog.Error().Err(err).Msg("Failed to update scheduled task")
+			c.Set(_headerContentType, _mimeJSON)
 			e, status := mapper.FromErrorToHTTPResponse(err)
 			c.Status(status)
 			return c.Send(e)
