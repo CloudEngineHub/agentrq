@@ -46,6 +46,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/mustafaturan/monoflake"
 )
 
@@ -638,6 +639,29 @@ func New(cfg Config) (*App, error) {
 
 	// API Handler
 	apiGroup := fiberApp.Group("/api/v1")
+
+	// Global rate limit: 100 requests per minute
+	apiGroup.Use(limiter.New(limiter.Config{
+		Max:        100,
+		Expiration: time.Minute,
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "too many requests",
+			})
+		},
+	}))
+
+	// Stricter rate limit for root login: 5 requests per minute to mitigate brute-force
+	apiGroup.Use("/auth/root/login", limiter.New(limiter.Config{
+		Max:        5,
+		Expiration: time.Minute,
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "too many login attempts, please try again later",
+			})
+		},
+	}))
+
 	if _, err := handlerapi.New(handlerapi.Params{
 		Crud:             crudCtrl,
 		Auth:             authSvc,
