@@ -223,6 +223,10 @@ watch(activeFilter, (newVal) => {
   });
 });
 
+watch(() => route.query.filter, (newFilter) => {
+  activeFilter.value = newFilter || 'active';
+});
+
 watch(workspaceId, (newId) => {
   if (newId) {
     disconnect();
