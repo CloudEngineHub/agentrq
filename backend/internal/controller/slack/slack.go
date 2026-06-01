@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	entity "github.com/agentrq/agentrq/backend/internal/data/entity/crud"
 	"github.com/agentrq/agentrq/backend/internal/data/model"
@@ -112,25 +113,29 @@ type SlackBlockAction struct {
 }
 
 type controller struct {
-	repo     base.Repository
-	slack    slacksvc.Service
-	crud     CRUDRespondToTask
-	mcp      MCPManager
-	pubsub   pubsub.Service
-	tokenKey string
-	baseURL  string
+	repo             base.Repository
+	slack            slacksvc.Service
+	crud             CRUDRespondToTask
+	mcp              MCPManager
+	pubsub           pubsub.Service
+	tokenKey         string
+	baseURL          string
+	slackHTTPClient  *http.Client
+	slackAllowedHost string
 }
 
 // New creates a new Slack controller.
 func New(p Params) Controller {
 	return &controller{
-		repo:     p.Repository,
-		slack:    p.SlackSvc,
-		crud:     p.Crud,
-		mcp:      p.MCPManager,
-		pubsub:   p.PubSub,
-		tokenKey: p.TokenKey,
-		baseURL:  p.BaseURL,
+		repo:             p.Repository,
+		slack:            p.SlackSvc,
+		crud:             p.Crud,
+		mcp:              p.MCPManager,
+		pubsub:           p.PubSub,
+		tokenKey:         p.TokenKey,
+		baseURL:          p.BaseURL,
+		slackHTTPClient:  &http.Client{Timeout: 30 * time.Second},
+		slackAllowedHost: "files.slack.com",
 	}
 }
 
@@ -504,7 +509,7 @@ func (c *controller) HandleSlackEvent(ctx context.Context, payload SlackEventPay
 			if f.URLPrivateDownload == "" {
 				continue
 			}
-			dataBase64, downloadErr := downloadSlackFile(ctx, decryptedToken, f.URLPrivateDownload)
+			dataBase64, downloadErr := c.downloadSlackFile(ctx, decryptedToken, f.URLPrivateDownload)
 			if downloadErr != nil {
 				zlog.Warn().Err(downloadErr).Str("fileID", f.ID).Msg("[slack] failed to download attachment from Slack")
 				continue
@@ -811,14 +816,25 @@ func stripBotMention(text, botUserID string) string {
 	return strings.TrimSpace(strings.ReplaceAll(text, mention, ""))
 }
 
-func downloadSlackFile(ctx context.Context, token string, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+func (c *controller) downloadSlackFile(ctx context.Context, token string, rawURL string) (string, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid slack file url: %w", err)
+	}
+
+	// Situational security: prevent SSRF by strictly validating the host and scheme.
+	// Slack private download URLs are typically on files.slack.com.
+	if parsedURL.Scheme != "https" || (parsedURL.Host != c.slackAllowedHost && parsedURL.Host != c.slackAllowedHost+":443") {
+		return "", fmt.Errorf("forbidden slack file host or scheme: %s", rawURL)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.slackHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}

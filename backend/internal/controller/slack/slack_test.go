@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -418,7 +419,7 @@ func TestHandleSlackEvent_WithFiles(t *testing.T) {
 
 	// Setup a mock HTTP test server to serve the private file download
 	fileContent := "hello from slack attachment"
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-decrypted-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -445,6 +446,12 @@ func TestHandleSlackEvent_WithFiles(t *testing.T) {
 		TokenKey:   "12345678901234567890123456789012",
 		BaseURL:    "https://app.agentrq.com",
 	})
+
+	// Mock the host to files.slack.com for the test
+	u, _ := url.Parse(server.URL)
+	c.(*controller).slackAllowedHost = u.Host
+	downloadURL := "https://" + c.(*controller).slackAllowedHost + u.Path
+	c.(*controller).slackHTTPClient = server.Client()
 
 	// Setup thread and workspace mocks
 	mockRepo.EXPECT().
@@ -486,7 +493,7 @@ func TestHandleSlackEvent_WithFiles(t *testing.T) {
 			ID:                 "F_123",
 			Name:               "test_attachment.txt",
 			MimeType:           "text/plain",
-			URLPrivateDownload: server.URL,
+			URLPrivateDownload: downloadURL,
 		},
 	}
 
