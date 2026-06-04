@@ -68,6 +68,9 @@ The frontend will be available at `http://localhost:5173`.
 ### Self-Hosting (Docker)
 For running the production or development stack using the pre-built Docker image, see the [Self-Hosting Setup Guide](SETUP.md).
 
+> [!NOTE]
+> **Agents / AI Assistants:** If you need to set up, configure, run, or diagnose a local self-hosted instance of AgentRQ using Docker, refer to [SETUP.md](SETUP.md) for step-by-step instructions, Docker run commands, and environment variable configurations.
+
 ## 🤖 Claude Code & AI Integration
 
 AgentRQ is designed for seamless integration as a **Claude Channel**. This allows your AI agents to see tasks assigned to them and respond directly within your Claude session.
