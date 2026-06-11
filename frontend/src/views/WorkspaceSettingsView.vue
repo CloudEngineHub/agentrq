@@ -267,7 +267,7 @@
                              {{ slackConfig && slackConfig.installed ? 'Slack Active' : 'Setup Slack' }}
                            </span>
                         </button>
-                        <button v-if="isPushSupported" type="button" @click="togglePush" :disabled="isPushLoading"
+                        <button v-if="isPushAvailable" type="button" @click="togglePush" :disabled="isPushLoading"
                                 class="flex items-center gap-3 px-4 py-2.5 rounded-sm transition-all shadow-sm border text-left"
                                 :class="isPushSubscribed ? 'bg-violet-50 dark:bg-violet-500/10 border-violet-100 dark:border-violet-500/20 hover:bg-violet-100' : 'bg-gray-50 dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 hover:bg-gray-100'">
                           <svg class="w-3.5 h-3.5 shrink-0" :class="isPushSubscribed ? 'text-violet-600 dark:text-violet-400' : 'text-gray-400 dark:text-zinc-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -524,10 +524,23 @@ const showManualForm = ref(false);
 const { checkWorkspaceSubscription, subscribeWorkspace, unsubscribeWorkspace } = usePushNotifications();
 const isPushSubscribed = ref(false);
 const isPushLoading = ref(false);
-const isPushSupported = ref(typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window);
+const isPushAvailable = ref(false); // true when browser supports push AND server has VAPID configured
 
 async function refreshPushStatus() {
+  if (!isPushAvailable.value) return;
   isPushSubscribed.value = await checkWorkspaceSubscription(workspaceId.value);
+}
+
+async function initPushAvailability() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const res = await fetch('/api/v1/push/vapid-public-key');
+    if (!res.ok) return;
+    const data = await res.json();
+    isPushAvailable.value = !!data.publicKey;
+  } catch {
+    // push not available
+  }
 }
 
 async function togglePush() {
@@ -733,9 +746,8 @@ async function load() {
       const tokenRes = await getWorkspaceToken(workspaceId.value);
       token.value = tokenRes.token || '';
     } catch (err) { console.error('Failed to fetch token:', err); }
-    if (isPushSupported.value) {
-      await refreshPushStatus();
-    }
+    await initPushAvailability();
+    await refreshPushStatus();
   } catch (err) {
     notifyError("Failed to load workspace settings: " + err.message);
     router.push('/');
