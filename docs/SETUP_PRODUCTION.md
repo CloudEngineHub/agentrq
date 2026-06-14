@@ -163,6 +163,19 @@ du -sh storage/
 docker-compose exec postgres psql -U postgres -c "SELECT pg_size_pretty(pg_database_size('agentrq'));"
 ```
 
+### Attachment Auto-Cleanup
+
+AgentRQ automatically deletes attachment files older than a configurable retention period. The cleanup runs daily at midnight UTC and skips database files.
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGENTRQ_APP_ATTACHMENT_RETENTION` | `7d` | Retention period for attachment files. Accepts day values (`7d`, `30d`) or Go duration strings (`168h`). |
+
+Set in `.env`:
+```env
+AGENTRQ_APP_ATTACHMENT_RETENTION=30d
+```
+
 ## Reverse Proxy Setup (Nginx Example)
 
 ```nginx

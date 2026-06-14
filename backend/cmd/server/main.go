@@ -32,6 +32,9 @@ func main() {
 	if err := cfgSvc.Populate("webPush", &cfg.WebPush); err != nil {
 		zlog.Fatal().Err(err).Msg("config webPush")
 	}
+	if err := cfgSvc.Populate("storage", &cfg.Storage); err != nil {
+		zlog.Fatal().Err(err).Msg("config storage")
+	}
 
 	cfg.ConfigSvc = cfgSvc
 

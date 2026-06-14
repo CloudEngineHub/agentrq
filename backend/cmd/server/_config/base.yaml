@@ -65,3 +65,6 @@ ratelimit:
   maxPerIP: ${AGENTRQ_RATELIMIT_MAX_PER_IP:60}
   maxPerUser: ${AGENTRQ_RATELIMIT_MAX_PER_USER:100}
   window: ${AGENTRQ_RATELIMIT_WINDOW:60s}
+
+storage:
+  attachmentRetentionPeriod: ${AGENTRQ_APP_ATTACHMENT_RETENTION:7d}
