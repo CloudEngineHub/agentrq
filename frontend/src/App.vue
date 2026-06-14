@@ -3,7 +3,7 @@
 
     <!-- PWA Update Banner -->
     <Transition name="slide-down">
-      <div v-if="needRefresh"
+      <div v-if="needRefresh && !isUpdating"
            class="fixed top-0 inset-x-0 z-[200] flex items-center justify-between gap-3 px-4 py-2.5 bg-black text-white text-xs font-medium shadow-lg">
         <div class="flex items-center gap-2">
           <svg class="w-3.5 h-3.5 shrink-0 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -300,10 +300,12 @@ import Toast from './components/Toast.vue'
 const appVersion = __APP_VERSION__
 const { needRefresh, updateServiceWorker } = useRegisterSW()
 
+const isUpdating = ref(false)
+
 const handleUpdateNow = async () => {
+  isUpdating.value = true
   needRefresh.value = false
-  await updateServiceWorker(false)
-  window.location.reload()
+  await updateServiceWorker(true)
 }
 
 const { toKebabCase } = useFormat()
