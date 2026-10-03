@@ -147,3 +147,12 @@ through those, never with a column `Update`, or the change leaves no history.
 `needsinput` (code 7) is a state of the history only, synced from pending
 questions in `CreateMessage`/`UpdateMessageMetadata`; never make it a task
 status, since the poller and every count read the status.
+
+
+## OAuth: being signed in is not consent
+
+Both servers' `/oauth2/authorize` issue a code only from `oauthconsent.Serve`,
+after Allow, and `Serve` re-checks the redirect_uri itself rather than trust
+its caller. The page is backend-rendered so no WebMCP tool can press Allow,
+and every value on it is validated first (`auth.ValidateDisplayName`, ASCII
+hosts), not cleaned at display.
