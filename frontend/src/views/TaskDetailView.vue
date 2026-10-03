@@ -25,8 +25,23 @@
               <svg class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
             </button>
             <!-- Removed workspace name on mobile per user request -->
-            <h1 class="text-lg @min-[48rem]:text-xl font-black text-gray-800 dark:text-zinc-200 tracking-tight leading-tight truncate flex-1 min-w-0">
-              {{ task.title }}
+            <!-- Click the title to rename it, for 7 days after the task was
+                 created; the server refuses past that, so it stays plain text. -->
+            <input v-if="renaming" ref="titleInput" v-model="renameDraft" data-test="task-title-input"
+                   :disabled="renameSaving" maxlength="200" aria-label="Task title"
+                   @keydown.enter.prevent="saveRename" @keydown.esc.prevent="cancelRename" @blur="saveRename"
+                   class="text-lg @min-[48rem]:text-xl font-black text-gray-800 dark:text-zinc-200 tracking-tight leading-tight flex-1 min-w-0 bg-transparent outline-none border-b border-gray-300 dark:border-zinc-600 focus:border-gray-900 dark:focus:border-white" />
+            <!-- The hint is drawn in the title row itself, beside the text, on
+                 hover or keyboard focus; a phone, with no hover, just taps. -->
+            <h1 v-else class="flex items-baseline gap-2 flex-1 min-w-0 text-lg @min-[48rem]:text-xl font-black text-gray-800 dark:text-zinc-200 tracking-tight leading-tight">
+              <span data-test="task-title"
+                    :role="renamable ? 'button' : undefined" :tabindex="renamable ? 0 : undefined"
+                    @click="renamable && startRename()"
+                    @keydown.enter.prevent="renamable && startRename()"
+                    :class="renamable ? 'peer cursor-text outline-none focus-visible:underline' : ''"
+                    class="truncate min-w-0">{{ task.title }}</span>
+              <span v-if="renamable" data-test="task-title-hint" aria-hidden="true"
+                    class="shrink-0 text-[9px] font-bold uppercase tracking-widest text-gray-400 dark:text-zinc-500 opacity-0 peer-hover:opacity-100 peer-focus-visible:opacity-100 transition-opacity pointer-events-none">Click to rename</span>
             </h1>
           </div>
 
@@ -908,6 +923,7 @@ import { writeClipboard } from '../composables/useMarkdownLinks';
 import { mergeTaskUpdate } from '../composables/useTaskEvents';
 import { taskDotClass, taskStatusTone } from '../composables/useTaskStatusStyle';
 import { forkNotice, forkedTaskPath } from '../composables/useTaskFork';
+import { useTaskRename } from '../composables/useTaskRename';
 import { elicitAnswerLabel, formatElicitAnswerValue, elicitAnswerSummary, isElicitExpired } from '../composables/useElicitAnswer';
 import MarkdownBody from '../components/MarkdownBody.vue';
 import TrajectoryPanel from '../components/TrajectoryPanel.vue';
@@ -946,6 +962,26 @@ const task = ref(null);
 // The task's status history, oldest first, from the single-task GET only.
 const stateTransitions = ref([]);
 const user = ref(null);
+
+const titleInput = ref(null);
+const {
+  editing: renaming,
+  draft: renameDraft,
+  saving: renameSaving,
+  renamable,
+  start: beginRename,
+  cancel: cancelRename,
+  save: saveRename,
+} = useTaskRename(task, workspaceId, { onError: notifyError });
+
+function startRename() {
+  beginRename();
+  nextTick(() => {
+    titleInput.value?.focus();
+    titleInput.value?.select();
+  });
+}
+
 const descExpanded = ref(false);
 const replyText = ref('');
 
