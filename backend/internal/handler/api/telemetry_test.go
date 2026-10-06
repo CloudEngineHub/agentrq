@@ -94,6 +94,7 @@ func TestRecordTelemetryAcceptsEachUIAction(t *testing.T) {
 		"ui_spin_up":         entity.ActionUISpinUp,
 		"ui_side_panel_open": entity.ActionUISidePanelOpen,
 		"ui_side_panel_link": entity.ActionUISidePanelLink,
+		"ui_message_react":   entity.ActionUIMessageReact,
 	} {
 		ctrl := &mockTelemetryCrud{}
 		app := newTelemetryApp(ctrl)

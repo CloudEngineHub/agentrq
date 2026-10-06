@@ -1581,6 +1581,10 @@ const (
 	// A skill turned on or off for agents from the interface.
 	ActionSkillEnable  Action = 90
 	ActionSkillDisable Action = 91
+	// A reaction sent from a message's quick-reaction menu, reported by the
+	// browser: on the server it is an ordinary reply, indistinguishable from
+	// one typed out.
+	ActionUIMessageReact Action = 92
 )
 
 // ClientReportableAction resolves an action name a browser is allowed to
@@ -1619,6 +1623,8 @@ func ClientReportableAction(name string) (Action, bool) {
 		return ActionUISidePanelOpen, true
 	case "ui_side_panel_link":
 		return ActionUISidePanelLink, true
+	case "ui_message_react":
+		return ActionUIMessageReact, true
 	}
 	return 0, false
 }
@@ -1751,6 +1757,8 @@ func (a Action) String() string {
 		return "skill_enable"
 	case ActionSkillDisable:
 		return "skill_disable"
+	case ActionUIMessageReact:
+		return "ui_message_react"
 	}
 	return "unknown"
 }

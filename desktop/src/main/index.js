@@ -58,6 +58,7 @@ import { createEventStreamClient } from './sse.js'
 import { LinkTarget, classifyLink } from './links.js'
 import { toggleFullScreen, viewState, zoomWindow } from './window-view.js'
 import { FileOpenAction, fileOpenAction, localPathFromFileUrl } from './files.js'
+import { showEmojiPanel } from './emoji-panel.js'
 import { UpdateStatus, createUpdater } from './updater.js'
 import { createInstallLog } from './install-log.js'
 import { createDiscovery } from './extensions/discovery.js'
@@ -996,6 +997,10 @@ function registerIpc(getWindow) {
     clipboard.writeText(String(text ?? ''))
     return true
   })
+
+  // The composer's "all emoji" button. A page cannot open the system's emoji
+  // keyboard; the shell can, on macOS and Windows.
+  ipcMain.handle('agentrq:emoji:show-panel', () => showEmojiPanel(app))
 
   // Profiles. Only names and servers cross the bridge — never a session, a
   // partition or a cookie.

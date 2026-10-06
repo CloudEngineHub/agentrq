@@ -202,7 +202,7 @@
       </div>
 
       <!-- Messages -->
-      <template v-for="m in displayMessages" :key="m.id">
+      <template v-for="m in shownThread.thread" :key="m.id">
 
         <!-- The agent's plan, indented under its avatar. The rest of the
              telemetry is not in the conversation but about it, and is read in
@@ -266,6 +266,18 @@
                              class="text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300 disabled:opacity-40 transition-colors p-0.5 rounded" title="Fork into a new task from here">
                        <svg class="w-2.5 h-2.5" :class="forkingMessageId === m.id ? 'animate-pulse' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.5"/><circle cx="18" cy="5" r="2.5"/><circle cx="12" cy="19" r="2.5"/><path d="M6 7.5v1.5a3 3 0 003 3h6a3 3 0 003-3V7.5M12 12v4.5"/></svg>
                      </button>
+                   </div>
+                   <!-- Reacting answers the agent's latest message, because that
+                        is where a reply of one emoji lands; offering it on an
+                        older one would put the badge somewhere else. -->
+                   <div v-if="m.id === reactTargetId && canReply" class="relative flex items-center">
+                     <button type="button" @click.stop="reactPickerOpen = !reactPickerOpen"
+                             :class="reactPickerOpen ? 'text-gray-700 dark:text-zinc-200' : 'text-gray-400 dark:text-zinc-500 hover:text-gray-600 dark:hover:text-zinc-300'"
+                             class="transition-colors p-0.5 rounded" title="React" aria-label="React">
+                       <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>
+                     </button>
+                     <EmojiPicker v-if="reactPickerOpen" class="right-0 top-full mt-1"
+                                  @pick="sendReaction" @close="reactPickerOpen = false" />
                    </div>
                    <span class="text-gray-400 dark:text-zinc-500" title="Agent"><svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span>
                  </div>
@@ -508,6 +520,16 @@
                  </div>
                </div>
              </div>
+             <!-- Reactions: replies that were a single emoji, hung on the
+                    message they answer — see useEmojiReactions. -->
+               <div v-if="reactionBadges[m.id]" class="flex justify-end mt-1.5 relative z-10">
+                 <div class="inline-flex items-center gap-1.5 px-1.5 h-5 rounded-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 shadow-sm">
+                   <span v-for="r in reactionBadges[m.id]" :key="r.emoji" role="img" :aria-label="r.label"
+                         @mouseenter="tooltipStore.show($event, r.label, 'top')"
+                         @mouseleave="tooltipStore.hide()"
+                         class="flex items-center gap-0.5 text-[12px] leading-none cursor-default">{{ r.emoji }}<span v-if="r.count > 1" class="text-[9px] font-semibold text-gray-500 dark:text-zinc-400">{{ r.count }}</span></span>
+                 </div>
+               </div>
           </div>
         </div>
 
@@ -547,6 +569,16 @@
                  </div>
                </div>
              </div>
+               <!-- Reactions: replies that were a single emoji, hung on the
+                    message they answer — see useEmojiReactions. -->
+               <div v-if="reactionBadges[m.id]" class="flex justify-end -mt-2 mr-2 relative z-10">
+                 <div class="inline-flex items-center gap-1.5 px-1.5 h-5 rounded-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 shadow-sm">
+                   <span v-for="r in reactionBadges[m.id]" :key="r.emoji" role="img" :aria-label="r.label"
+                         @mouseenter="tooltipStore.show($event, r.label, 'top')"
+                         @mouseleave="tooltipStore.hide()"
+                         class="flex items-center gap-0.5 text-[12px] leading-none cursor-default">{{ r.emoji }}<span v-if="r.count > 1" class="text-[9px] font-semibold text-gray-500 dark:text-zinc-400">{{ r.count }}</span></span>
+                 </div>
+               </div>
           </div>
         </div>
 
@@ -624,6 +656,16 @@
                  </div>
                </div>
              </div>
+               <!-- Reactions: replies that were a single emoji, hung on the
+                    message they answer — see useEmojiReactions. -->
+               <div v-if="reactionBadges[m.id]" class="flex justify-end -mt-2 mr-2 relative z-10">
+                 <div class="inline-flex items-center gap-1.5 px-1.5 h-5 rounded-full bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 shadow-sm">
+                   <span v-for="r in reactionBadges[m.id]" :key="r.emoji" role="img" :aria-label="r.label"
+                         @mouseenter="tooltipStore.show($event, r.label, 'top')"
+                         @mouseleave="tooltipStore.hide()"
+                         class="flex items-center gap-0.5 text-[12px] leading-none cursor-default">{{ r.emoji }}<span v-if="r.count > 1" class="text-[9px] font-semibold text-gray-500 dark:text-zinc-400">{{ r.count }}</span></span>
+                 </div>
+               </div>
           </div>
         </div>
 
@@ -700,8 +742,10 @@
 
           <!-- Bottom Toolbar -->
           <div class="flex items-center justify-between px-3 pb-2 pt-1">
-            <!-- Left actions (Attachment paperclip & Mode info badge) -->
-            <div class="flex items-center gap-2">
+            <!-- Left actions (Attachment paperclip & Mode info badge). The
+                 emoji picker opens from this row's left edge rather than from
+                 its own button, so it fits a phone's width. -->
+            <div class="relative flex items-center gap-2">
               <button type="button" @click="$refs.fileInput.click()"
                       :disabled="!workspace.agentConnected && task.assignee !== 'human' && task.status !== 'pending'"
                       class="h-6 w-6 rounded-sm text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-50 hover:bg-gray-105 dark:hover:bg-zinc-700 transition-colors flex items-center justify-center disabled:opacity-30"
@@ -726,6 +770,24 @@
                 <!-- Idle: mic icon -->
                 <svg v-else class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" /></svg>
               </button>
+              <!-- Emoji: the quick reactions go in at the cursor, and the
+                   plus opens the system's own emoji keyboard where the app
+                   can (the desktop app on macOS and Windows) and says how to
+                   open it where it cannot. A message of one emoji is drawn
+                   as a reaction to the agent's last message. -->
+              <div>
+                <button type="button" @click.stop="composerPickerOpen = !composerPickerOpen; tooltipStore.hide()"
+                        :disabled="offline || (!workspace.agentConnected && task.assignee !== 'human' && task.status !== 'pending')"
+                        @mouseenter="tooltipStore.show($event, 'Emoji', 'top')"
+                        @mouseleave="tooltipStore.hide()"
+                        aria-label="Emoji"
+                        :class="composerPickerOpen ? 'text-gray-900 dark:text-zinc-50 bg-gray-105 dark:bg-zinc-700' : 'text-gray-500 dark:text-zinc-400'"
+                        class="h-6 w-6 rounded-sm hover:text-gray-900 dark:hover:text-zinc-50 hover:bg-gray-105 dark:hover:bg-zinc-700 transition-colors flex items-center justify-center disabled:opacity-30">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>
+                </button>
+                <EmojiPicker v-if="composerPickerOpen" show-more class="left-0 bottom-full mb-2"
+                             @pick="insertEmoji" @more="openSystemEmoji" @close="composerPickerOpen = false" />
+              </div>
               <!-- YOLO Toggle -->
               <button type="button" @click.stop="toggleYOLO"
                       @mouseenter="tooltipStore.show($event, task.allowAllCommands ? 'YOLO Active: Agent will execute all commands without approval' : 'YOLO Mode: Skip approval for sensitive commands', 'top')"
@@ -903,7 +965,7 @@
 import { ref, onMounted, computed, onUnmounted, watch, nextTick } from 'vue';
 import { downloadAttachment } from '../composables/useAttachmentDownload';
 import { useRoute, useRouter } from 'vue-router';
-import { getWorkspace, fetchTasks, archiveWorkspace, unarchiveWorkspace, updateWorkspace, getWorkspaceToken, getTask, updateTaskStatus, respondToTask, updateTaskAssignee, getAttachmentUrl, sendPermissionVerdict, respondToElicitation, stopTask, updateTaskAllowAllCommands, fetchUser, forkTask, TELEMETRY_UI_COPY_LINK, TELEMETRY_UI_COPY_MARKDOWN, TELEMETRY_UI_SHORTCUT_USE, TELEMETRY_UI_TRAJECTORY_VIEW } from '../api';
+import { getWorkspace, fetchTasks, archiveWorkspace, unarchiveWorkspace, updateWorkspace, getWorkspaceToken, getTask, updateTaskStatus, respondToTask, updateTaskAssignee, getAttachmentUrl, sendPermissionVerdict, respondToElicitation, stopTask, updateTaskAllowAllCommands, fetchUser, forkTask, TELEMETRY_UI_COPY_LINK, TELEMETRY_UI_COPY_MARKDOWN, TELEMETRY_UI_SHORTCUT_USE, TELEMETRY_UI_TRAJECTORY_VIEW, TELEMETRY_UI_MESSAGE_REACT } from '../api';
 import { useTooltipStore } from '../stores/tooltipStore';
 import { useToasts } from '../composables/useToasts';
 import { useViewport } from '../composables/useViewport';
@@ -935,6 +997,9 @@ import { useTaskRename } from '../composables/useTaskRename';
 import { elicitAnswerLabel, formatElicitAnswerValue, elicitAnswerSummary, isElicitExpired } from '../composables/useElicitAnswer';
 import { withRequestAnswered } from '../composables/useRequestAnswer';
 import MarkdownBody from '../components/MarkdownBody.vue';
+import EmojiPicker from '../components/EmojiPicker.vue';
+import { foldReactions, summarizeReactions, emojiKeyboardHint, openEmojiKeyboard } from '../composables/useEmojiReactions';
+import { insertAtCursor } from '../utils/insertAtCursor';
 import TrajectoryPanel from '../components/TrajectoryPanel.vue';
 import TaskTimeline from '../components/TaskTimeline.vue';
 import {
@@ -948,7 +1013,7 @@ import { useSidePanel } from '../composables/useSidePanel';
 import { cacheTask, cacheTaskUpdate, sharedCache } from '../composables/useCachedTasks';
 import { OFFLINE_NOTICE, readCachedTask, useOffline } from '../composables/useCachedReads';
 
-const { notifyError, notifySuccess } = useToasts();
+const { notifyError, notifySuccess, notifyInfo } = useToasts();
 const tooltipStore = useTooltipStore();
 const platformStore = usePlatformStore();
 const sidePanel = useSidePanel();
@@ -1313,6 +1378,57 @@ const displayMessages = computed(() => {
   return [...threadMessages.value, ...held, ...queuedBubbles.value];
 });
 
+// The thread as drawn: a reply of a single emoji is a reaction, shown as a
+// badge on the message it answers rather than as a bubble. The plan card is
+// not something said, so it is never what a reaction answers.
+const shownThread = computed(() => foldReactions(displayMessages.value, (m) => !isThreadTelemetry(m)));
+
+const reactionBadges = computed(() => Object.fromEntries(
+  Object.entries(shownThread.value.reactions).map(([id, list]) => [id, summarizeReactions(list)])
+));
+
+// The message a reaction sent now would land on: the agent's latest.
+const reactTargetId = computed(() => shownThread.value.thread
+  .findLast((m) => m.sender === 'agent' && !isThreadTelemetry(m))?.id ?? null);
+
+// Whether a reply can go out at all, by the same rules as the send button.
+const canReply = computed(() => !offline.value && !workspace.value?.archivedAt
+  && !(task.value?.assignee !== 'human' && (!workspace.value?.agentConnected || task.value?.status === 'notstarted' || task.value?.status === 'pending')));
+
+const reactPickerOpen = ref(false);
+const composerPickerOpen = ref(false);
+
+// A reaction is a reply like any other, so it goes the way a typed one does:
+// queued while the agent works, held for the send delay otherwise.
+async function sendReaction(emoji) {
+  reactPickerOpen.value = false;
+  if (!canReply.value) return;
+  recordUiAction(TELEMETRY_UI_MESSAGE_REACT, route);
+  await dispatchReply(emoji, []);
+}
+
+function insertEmoji(emoji) {
+  composerPickerOpen.value = false;
+  const el = textareaRef.value;
+  const { value, caret } = insertAtCursor(replyText.value, emoji, el);
+  replyText.value = value;
+  nextTick(() => {
+    el?.focus();
+    el?.setSelectionRange(caret, caret);
+    adjustTextareaHeight();
+  });
+}
+
+async function openSystemEmoji() {
+  composerPickerOpen.value = false;
+  const opened = await openEmojiKeyboard({
+    field: textareaRef.value,
+    isDesktop: platformStore.isDesktop,
+    bridge: window.agentrq?.emoji,
+  });
+  if (!opened) notifyInfo(emojiKeyboardHint(platformStore.$state));
+}
+
 const activeView = ref('chat');
 
 // The two view shortcuts are registered by the view that owns the state rather
@@ -1640,7 +1756,10 @@ async function submitReply() {
   nextTick(() => {
     adjustTextareaHeight();
   });
+  await dispatchReply(text, atts);
+}
 
+async function dispatchReply(text, atts) {
   // Mid-turn the message is held here rather than posted. The gateway would
   // chain it behind the running turn, out of sight and out of reach; queued it
   // stays visible and editable until the turn ends. The send delay is skipped
