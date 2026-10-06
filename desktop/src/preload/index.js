@@ -109,6 +109,16 @@ contextBridge.exposeInMainWorld('agentrq', {
     write: (text) => ipcRenderer.invoke('agentrq:clipboard:write', text),
   },
 
+  emoji: {
+    /**
+     * Open the system's emoji keyboard on the focused field. Only macOS and
+     * Windows have one the shell can open.
+     *
+     * @returns {Promise<boolean>} whether it opened
+     */
+    showPanel: () => ipcRenderer.invoke('agentrq:emoji:show-panel'),
+  },
+
   dialog: {
     /**
      * Ask the shell to show the platform's folder chooser.

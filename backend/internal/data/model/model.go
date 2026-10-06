@@ -666,6 +666,8 @@ const (
 	// A skill turned on or off for agents from the interface.
 	ActionIDSkillEnable
 	ActionIDSkillDisable
+	// A reaction sent from a message's quick-reaction menu.
+	ActionIDUIMessageReact
 )
 
 // SubActionID names which tool, resource or prompt an ActionIDMCPToolCall or

@@ -1092,6 +1092,9 @@ export const TELEMETRY_UI_DICTATION_END = 'ui_dictation_end';
 export const TELEMETRY_UI_SIDE_PANEL_OPEN = 'ui_side_panel_open';
 // A link in a task or message opened in the side panel rather than a browser.
 export const TELEMETRY_UI_SIDE_PANEL_LINK = 'ui_side_panel_link';
+// A reaction sent from a message's quick-reaction menu. On the server it is an
+// ordinary reply, so only the browser knows it was a reaction.
+export const TELEMETRY_UI_MESSAGE_REACT = 'ui_message_react';
 
 // Records one local-AI feature use. Never throws and never blocks the caller:
 // a metric is not worth failing a user's click over, so a rejected or
