@@ -32,7 +32,7 @@ This document outlines the core design principles and UI patterns to ensure cons
 
 - **Centering**: The Login page must be perfectly centered on the screen.
 - **Dashboard Aligment**: Workspace-specific pages use left-aligned, high-density layouts mirroring the `hasmcp-app` structure.
-- **Paddings**: Use consistent horizontal padding (`px-4 py-6 md:px-16 md:pt-8 md:pb-8`) for the main content area inside the rounded container.
+- **Paddings**: The content area inside the rounded container is padded once, in `App.vue` (`px-2 pt-4 pb-6 md:p-4`); pages add only their own `px-4` header/section padding. Keep the phone `pb-6`: it is part of the clearance above the floating Menu pill.
 
 ## 5. Dialogs & Interactions
 

@@ -11,7 +11,7 @@
        against this element. -->
   <div class="@container h-full bg-white dark:bg-zinc-900 flex flex-col w-full max-w-full overflow-x-hidden relative">
     <!-- Breadcrumb Header -->
-    <header class="py-4 border-b border-gray-100 dark:border-zinc-800 shrink-0 flex items-center justify-between gap-4 bg-white dark:bg-zinc-900 sticky top-0 z-30 px-6">
+    <header class="py-2 border-b border-gray-100 dark:border-zinc-800 shrink-0 flex items-center justify-between gap-4 bg-white dark:bg-zinc-900 sticky top-0 z-30 px-4">
       <div class="flex items-center gap-2 text-xs font-semibold min-w-0 flex-1">
         <router-link :to="'/workspaces/' + workspaceId" class="text-gray-500 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-zinc-50 transition-colors shrink-0">
           {{ workspace?.name || 'Workspace' }}
