@@ -464,7 +464,7 @@
              it — so its size is also the size a page navigated to next is
              about to get. useLaunchTerminalSize.js reads it before a launch
              navigates to the terminal that has not been created yet. -->
-        <div data-terminal-launch-area class="px-4 py-6 md:px-8 md:py-8 h-full flex flex-col">
+        <div data-terminal-launch-area class="px-2 pt-4 pb-6 md:p-4 h-full flex flex-col">
           <router-view v-slot="{ Component, route: page }">
             <component :is="Component" :key="pageKey(page)" class="grow flex flex-col min-h-0 min-w-0" />
           </router-view>
