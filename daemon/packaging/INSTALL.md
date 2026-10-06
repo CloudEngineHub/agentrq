@@ -33,28 +33,44 @@ then:
 ```sh
 # Linux
 tar xzf agentrqd_*_linux_*.tar.gz
+mkdir -p ~/.local/bin
 install -m 0755 agentrqd ~/.local/bin/
 
 # macOS
 tar xzf agentrqd_*_darwin_*.tar.gz
-sudo install -m 0755 agentrqd /usr/local/bin/
+mkdir -p ~/.local/bin
+install -m 0755 agentrqd ~/.local/bin/
+# put ~/.local/bin on your PATH, for the shell you use; skip if it is already
+line='export PATH="$HOME/.local/bin:$PATH"'
+case "$(basename "$SHELL")" in
+  zsh)  echo "$line" >> "${ZDOTDIR:-$HOME}/.zshrc" ;;
+  # a login bash reads only the first of these that exists, so add to that one
+  bash) for rc in ~/.bash_profile ~/.bash_login ~/.profile ~/.bash_profile; do
+          [ -f "$rc" ] && break
+        done
+        echo "$line" >> "$rc" ;;
+  fish) fish -c 'fish_add_path ~/.local/bin' ;;
+  *)    echo "$line" >> ~/.profile ;;
+esac
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-Expand-Archive agentrqd_*_windows_*.zip -DestinationPath $env:LOCALAPPDATA\agentrqd
+$dir = "$env:LOCALAPPDATA\Programs"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Expand-Archive agentrqd_*_windows_*.zip -DestinationPath .
+Move-Item -Force agentrqd.exe "$dir\agentrqd.exe"
 
-# Windows has no user directory that is already on PATH, so add this one.
-# Takes effect in new shells.
-[Environment]::SetEnvironmentVariable("Path",
-  "$env:Path;$env:LOCALAPPDATA\agentrqd", "User")
+# Windows has no user folder already on PATH, so add this one; skip if it is.
+# Read the User value: $env:Path is that and the system PATH combined.
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$userPath;$dir", "User")
 ```
 
 **Do not install it as root or Administrator.** The daemon refuses to start
 that way, because an agent it runs would have those powers too. If an install
-guide tells you to use `sudo` for anything other than copying the binary into
-`/usr/local/bin`, it is working around that check.
+guide tells you to use `sudo` for any of this, it is working around that check.
 
 ## 2. Enrol
 

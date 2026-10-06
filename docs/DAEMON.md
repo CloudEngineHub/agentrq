@@ -50,8 +50,9 @@ curl -fsSL https://agentrq.com/install-agentrqd.sh | sh
 
 It works out which archive this machine needs, **verifies it against the
 SHA-256 checksums published with the release**, and installs to
-`~/.local/bin` on Linux or `/usr/local/bin` on macOS. Running it again
-updates in place. It installs and nothing more: it does not enrol the
+`~/.local/bin`, a folder you own, so it never asks for a password. If that
+folder is not on your `PATH` yet, it prints the one line that adds it, for the
+shell you use. Running it again updates in place. It installs and nothing more: it does not enrol the
 machine, start anything, install a service, or run as root.
 
 The checksum is not optional and there is no flag to skip it — a download the
@@ -123,6 +124,7 @@ installing on, not the one you are reading this on.
 
 ```sh
 tar xzf agentrqd_*_linux_*.tar.gz
+mkdir -p ~/.local/bin
 install -m 0755 agentrqd ~/.local/bin/
 ```
 
@@ -130,17 +132,37 @@ install -m 0755 agentrqd ~/.local/bin/
 
 ```sh
 tar xzf agentrqd_*_darwin_*.tar.gz
-sudo install -m 0755 agentrqd /usr/local/bin/
+mkdir -p ~/.local/bin
+install -m 0755 agentrqd ~/.local/bin/
+# put ~/.local/bin on your PATH, for the shell you use; skip if it is already
+line='export PATH="$HOME/.local/bin:$PATH"'
+case "$(basename "$SHELL")" in
+  zsh)  echo "$line" >> "${ZDOTDIR:-$HOME}/.zshrc" ;;
+  # a login bash reads only the first of these that exists, so add to that one
+  bash) for rc in ~/.bash_profile ~/.bash_login ~/.profile ~/.bash_profile; do
+          [ -f "$rc" ] && break
+        done
+        echo "$line" >> "$rc" ;;
+  fish) fish -c 'fish_add_path ~/.local/bin' ;;
+  *)    echo "$line" >> ~/.profile ;;
+esac
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
+$dir = "$env:LOCALAPPDATA\Programs"
+New-Item -ItemType Directory -Force $dir | Out-Null
 Expand-Archive agentrqd_*_windows_*.zip -DestinationPath .
-Move-Item agentrqd.exe "$env:LOCALAPPDATA\Programs\agentrqd.exe"
+Move-Item -Force agentrqd.exe "$dir\agentrqd.exe"
+
+# Windows has no user folder already on PATH, so add this one; skip if it is.
+# Read the User value: $env:Path is that and the system PATH combined.
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$userPath;$dir", "User")
 ```
 
-That `sudo` on macOS copies a file into `/usr/local/bin` and nothing more.
+Nothing here needs `sudo`.
 **Do not run the daemon itself as root or Administrator** — it refuses, because
 an agent it starts would inherit those powers. If an install guide anywhere
 tells you to work around that refusal, it is removing the only thing keeping an
@@ -184,6 +206,8 @@ leaves them in the archive you unpacked:
   Add `sudo loginctl enable-linger "$USER"` so it survives logout.
 - **macOS** — copy `com.agentrq.agentrqd.plist` into `~/Library/LaunchAgents/`,
   then `launchctl load -w ~/Library/LaunchAgents/com.agentrq.agentrqd.plist`.
+  It runs `~/.local/bin/agentrqd` as shipped; the script's copy names wherever
+  `--dir` put it instead.
 
 Both are **user**-level — a systemd user unit and a LaunchAgent, not a system
 service and not a LaunchDaemon — for the reason above. Under either, the daemon
