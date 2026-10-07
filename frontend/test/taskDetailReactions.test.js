@@ -139,6 +139,23 @@ describe('a reply of one emoji', () => {
     expect([...el.querySelectorAll('span')].filter((s) => /^Agent · /.test(s.textContent))).toHaveLength(1)
   })
 
+  it("sits at the bottom right of the agent's message, and on the edge of the person's bubble", async () => {
+    messages.push(human('m3', '👍', 2), agent('m4', '✅', 3))
+    const { labelled } = await mount()
+    // Bottom right is where people look for a reaction. The agent's message
+    // has no bubble to overlap, so its badge tucks up into the last line's
+    // leading.
+    const row = (label) => labelled(label)[0].parentElement.parentElement
+    expect([...row('You reacted 👍').classList]).toEqual(expect.arrayContaining(['justify-end', '-mt-1']))
+    // Every pill is filled, with no border, on the page and on a bubble.
+    for (const label of ['You reacted 👍', 'Agent reacted ✅']) {
+      const pill = labelled(label)[0].parentElement.classList
+      expect(pill).toContain('bg-gray-200')
+      expect(pill).not.toContain('border')
+    }
+    expect([...row('Agent reacted ✅').classList]).toEqual(expect.arrayContaining(['justify-end', '-mt-2']))
+  })
+
   it('counts the same emoji sent twice', async () => {
     messages.push(human('m3', '👍', 2), human('m4', '👍', 3))
     const { labelled, badges } = await mount()
