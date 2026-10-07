@@ -55,14 +55,35 @@ describe('index.html applies the saved theme before first paint', () => {
     expect(load('dark').body).toContain('dark:bg-zinc-950')
   })
 
-  it('is white on a phone in light mode, like the page under the status bar', () => {
-    // The strip is set once at launch and the page below it is a white card
-    // with the menu closed, so the shell (and the open menu) must be white too.
+  it('is one colour on a phone, under the status bar, menu open or closed', () => {
+    // The strip is set once at launch, so the page under it with the menu
+    // closed and the open menu must be one colour: white in light mode, the
+    // shell's zinc-950 in dark mode, where the page card is zinc-900 only on
+    // wider screens.
     expect(load('light').body).toMatch(/(^| )bg-white( |$)/)
     const app = readFileSync(resolve(__dirname, '../src/App.vue'), 'utf-8')
     for (const el of ['id="app"', '<nav v-if="!isLoginPage"', '<main v-else']) {
       const tag = app.slice(app.indexOf(el), app.indexOf('>', app.indexOf(el)))
       expect(tag, el).toContain('bg-white md:bg-zinc-100 dark:bg-zinc-950')
+    }
+    const css = readFileSync(resolve(__dirname, '../src/style.css'), 'utf-8')
+    const surface = css.slice(css.indexOf('@utility page-surface'), css.indexOf('\n}', css.indexOf('@utility page-surface')))
+    expect(surface).toContain('background-color: var(--color-white)')
+    expect(surface).toContain('@variant dark { background-color: var(--color-zinc-950); }')
+    expect(surface).toContain('@variant md { @variant dark { background-color: var(--color-zinc-900); } }')
+    const card = app.slice(app.lastIndexOf('<div', app.indexOf('scroll-smooth')), app.indexOf('>', app.indexOf('scroll-smooth')))
+    expect(card).toContain('page-surface')
+    // Pages that paint their own background, and their sticky headers, use
+    // the card's colour too, or they show as a band on a phone.
+    for (const view of ['TaskDetailView', 'TaskFormView', 'WorkspaceFormView', 'WorkspaceAnalyticsView']) {
+      const src = readFileSync(resolve(__dirname, `../src/views/${view}.vue`), 'utf-8')
+      const root = src.slice(src.indexOf('<div', src.indexOf('<template>')), src.indexOf('>', src.indexOf('<div', src.indexOf('<template>'))))
+      expect(root, view).toContain('page-surface')
+      expect(root, view).not.toContain('dark:bg-zinc-900')
+    }
+    for (const view of ['WorkspaceFormView', 'TaskFormView']) {
+      const src = readFileSync(resolve(__dirname, `../src/views/${view}.vue`), 'utf-8')
+      expect(src, view).toContain('page-surface sticky')
     }
   })
 })

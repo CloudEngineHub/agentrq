@@ -16,7 +16,7 @@
       // Apply the saved theme before first paint. iOS colours the status bar
       // from the page background and reads theme-color at launch, so waiting
       // for the Vue app leaves a light strip above a dark page. On a phone the
-      // light shell is white, like the page under the bar with the menu closed.
+      // shell, the menu and the page under the bar are one colour.
       (function () {
         var theme = null
         try { theme = localStorage.getItem('theme') } catch (e) {}
