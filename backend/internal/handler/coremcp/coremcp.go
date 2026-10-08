@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/agentrq/agentrq/backend/internal/controller/crud"
 	entity "github.com/agentrq/agentrq/backend/internal/data/entity/crud"
+	"github.com/agentrq/agentrq/backend/internal/handler/authmd"
 	"github.com/agentrq/agentrq/backend/internal/handler/oauthconsent"
 	"github.com/agentrq/agentrq/backend/internal/service/auth"
 	"github.com/agentrq/agentrq/backend/internal/service/pubsub"
@@ -34,6 +36,9 @@ type Params struct {
 	Domain  string
 	Mux     *http.ServeMux
 	PubSub  pubsub.Service
+	// PublicDir is the web build the static handler serves, for its
+	// robots.txt on the mcp. host. Defaults to ./public, as the app's is.
+	PublicDir string
 }
 
 type Handler interface{}
@@ -106,6 +111,10 @@ func New(p Params) (Handler, error) {
 	p.Mux.Handle("/mcp/oauth2/authorize", h.oauthAuthorizeHandler())
 	p.Mux.Handle("/mcp/oauth2/token", corsWrapper(h.oauthTokenHandler()))
 	p.Mux.Handle("/mcp/oauth2/register", corsWrapper(h.oauthRegisterHandler()))
+	// Covers the workspace servers too; it lives here because the mcp. host
+	// below answers every other path with this server's endpoint.
+	authMD := authmd.Handler(p.BaseURL)
+	p.Mux.Handle("/auth.md", authMD)
 
 	// Host-based distinct paths
 	if hostPattern != "" {
@@ -115,6 +124,16 @@ func New(p Params) (Handler, error) {
 		p.Mux.Handle(hostPattern+"/oauth2/authorize", h.oauthAuthorizeHandler())
 		p.Mux.Handle(hostPattern+"/oauth2/token", corsWrapper(h.oauthTokenHandler()))
 		p.Mux.Handle(hostPattern+"/oauth2/register", corsWrapper(h.oauthRegisterHandler()))
+		p.Mux.Handle(hostPattern+"/auth.md", authMD)
+		// Every other path on this host is the MCP endpoint, which would
+		// answer robots.txt with a 401.
+		publicDir := p.PublicDir
+		if publicDir == "" {
+			publicDir = "./public"
+		}
+		p.Mux.Handle(hostPattern+"/robots.txt", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, filepath.Join(publicDir, "robots.txt"))
+		}))
 	}
 
 	return h, nil
