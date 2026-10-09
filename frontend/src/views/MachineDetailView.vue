@@ -41,6 +41,7 @@ import { useToasts } from '../composables/useToasts'
 import { onWebMCPChange } from '../composables/useWebMCPChanges'
 import DeleteModal from '../components/DeleteModal.vue'
 import AgentKindPicker from '../components/AgentKindPicker.vue'
+import ClaudeOptionsPicker from '../components/ClaudeOptionsPicker.vue'
 import { useAgentLaunch } from '../composables/useAgentLaunch'
 import { terminalPath } from '../composables/useTerminalView'
 
@@ -72,6 +73,7 @@ const {
   error: launchError,
   acpAgents: launchAcpAgents,
   acpModels: launchAcpModels,
+  claudeModels: launchClaudeModels,
 } = launcher
 
 const liveCount = computed(() => liveSessions.value.length)
@@ -510,6 +512,8 @@ async function stopSession(id) {
           </div>
 
           <AgentKindPicker id-prefix="launch-kind" v-model="launchKind" />
+
+          <ClaudeOptionsPicker v-if="launchKind === 'claude-code'" id-prefix="launch" v-model="launchParams" :models="launchClaudeModels" />
 
           <!-- Only the gateway needs these, and only the agent is required.
                Agent first: the model list is per-agent, so there is nothing

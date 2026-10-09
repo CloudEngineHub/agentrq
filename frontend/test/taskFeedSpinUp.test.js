@@ -94,6 +94,23 @@ describe('Spin up on a task row', () => {
     expect(row('Fix login')).toBeUndefined()
   })
 
+  it('asks Claude Code\'s model and effort on sliders in the popover and sends them', async () => {
+    const { row } = await mount(PARENT)
+    row('Fix login').querySelector('[title="Spin up in a fork"]').click()
+    await settle()
+    expect(document.body.querySelector('#spin-up-agent')).toBe(null)
+    const model = document.body.querySelector('#spin-up-model')
+    model.value = '4'
+    model.dispatchEvent(new Event('input'))
+    const effort = document.body.querySelector('#spin-up-effort')
+    effort.value = '3'
+    effort.dispatchEvent(new Event('input'))
+    await settle()
+    ;[...document.body.querySelectorAll('[data-test=spin-up] button')].find((b) => b.textContent.trim() === 'Spin up').click()
+    await settle()
+    expect(launchAgent).toHaveBeenCalledWith('f1', expect.objectContaining({ kind: 'claude-code', model: 'fable', effort: 'high' }))
+  })
+
   it('keeps the row when the move is what failed', async () => {
     moveTask.mockImplementationOnce(() => Promise.reject(new Error('task not found')))
     const { row } = await mount(PARENT)

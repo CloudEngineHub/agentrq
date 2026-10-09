@@ -20,6 +20,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkspaceAgentLaunch } from '../composables/useWorkspaceAgentLaunch'
 import AgentKindPicker from './AgentKindPicker.vue'
+import ClaudeOptionsPicker from './ClaudeOptionsPicker.vue'
 import { terminalPath } from '../composables/useTerminalView'
 import { launchFolderNote } from '../composables/useAgentLaunch'
 import { useWorkspaceStore } from '../stores/workspaceStore'
@@ -60,6 +61,7 @@ const {
   canLaunch,
   acpAgents,
   acpModels,
+  claudeModels,
 } = launcher
 
 const open = ref(props.variant === 'card')
@@ -204,6 +206,8 @@ async function start() {
       <!-- Its own row: sharing one with the machine picker meant two columns,
            and in a 420px card neither was wide enough to read. -->
       <AgentKindPicker id-prefix="start-agent-kind" v-model="kind" />
+
+      <ClaudeOptionsPicker v-if="kind === 'claude-code'" id-prefix="start-agent" v-model="params" :models="claudeModels" />
 
       <!-- Only the gateway needs these, and only the agent is required. Agent
            first: the model list is per-agent, so there is nothing to suggest

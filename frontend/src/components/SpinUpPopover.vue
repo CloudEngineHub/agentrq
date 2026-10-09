@@ -14,6 +14,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import AgentKindPicker from './AgentKindPicker.vue'
+import ClaudeOptionsPicker from './ClaudeOptionsPicker.vue'
 import { terminalPath } from '../composables/useTerminalView'
 import { spinUpName } from '../composables/useSpinUp'
 import { useWorkspaceStore } from '../stores/workspaceStore'
@@ -82,6 +83,8 @@ async function start() {
       </p>
 
       <AgentKindPicker id-prefix="spin-up-kind" :model-value="spin.kind.value" @update:model-value="spin.kind.value = $event" />
+
+      <ClaudeOptionsPicker v-if="spin.kind.value === 'claude-code'" id-prefix="spin-up" :model-value="spin.params.value" :models="spin.claudeModels.value" @update:model-value="spin.params.value = $event" />
 
       <div v-if="spin.kind.value === 'acp-gateway'" class="grid gap-2 grid-cols-2">
         <div class="min-w-0">

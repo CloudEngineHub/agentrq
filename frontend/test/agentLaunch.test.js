@@ -20,6 +20,15 @@ import {
   forkParent,
   KINDS,
   GATEWAY_DEFAULTS,
+  CLAUDE_CODE_MODELS,
+  CLAUDE_CODE_EFFORTS,
+  lastClaudeCodeChoice,
+  rememberClaudeCodeChoice,
+  initialParams,
+  rememberParams,
+  useKindParams,
+  stepIndex,
+  claudeModelSteps,
 } from '../src/composables/useAgentLaunch.js'
 
 const READY_WORKSPACE = {
@@ -391,6 +400,7 @@ describe('lastAcpGatewayChoice / rememberAcpGatewayChoice', () => {
   it('opens the form on the remembered choice instead of GATEWAY_DEFAULTS', async () => {
     rememberAcpGatewayChoice({ agent: 'codex-acp', model: 'gpt-5.5' })
     const h = harness()
+    h.l.kind.value = 'acp-gateway'
     expect(h.l.params.value).toEqual({ agent: 'codex-acp', model: 'gpt-5.5' })
   })
 
@@ -688,5 +698,125 @@ describe('the last launch of each workspace', () => {
     l.workspaceId.value = 'ws1'
     await l.launch()
     expect(lastLaunchChoice('ws1')).toEqual({ machineId: 'm1', kind: 'claude-code' })
+  })
+})
+
+describe('choosing Claude Code\'s model and effort', () => {
+  afterEach(() => localStorage.clear())
+
+  it('offers the model as an optional field, checked like the gateway\'s', () => {
+    expect(paramsEligibility('claude-code', { model: '' }).ok).toBe(true)
+    expect(paramsEligibility('claude-code', { model: 'opus' }).ok).toBe(true)
+    expect(paramsEligibility('claude-code', { model: 'claude-opus-5-5' }).ok).toBe(true)
+    const bad = paramsEligibility('claude-code', { model: '--dangerously-skip-permissions' })
+    expect(bad.ok).toBe(false)
+    expect(bad.reason).toContain('That model has characters the daemon will not accept')
+  })
+
+  it('offers each model family and every effort level, each after Claude Code\'s default', () => {
+    expect(CLAUDE_CODE_MODELS.map((m) => m.id)).toEqual(['', 'haiku', 'sonnet', 'opus', 'fable'])
+    expect(CLAUDE_CODE_EFFORTS.map((e) => e.id)).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max'])
+    for (const { id } of [...CLAUDE_CODE_MODELS, ...CLAUDE_CODE_EFFORTS]) {
+      expect(paramsEligibility('claude-code', { model: id, effort: id }).ok).toBe(true)
+    }
+    expect(launchParamsPayload('claude-code', { model: '', effort: 'high' })).toEqual({ effort: 'high' })
+  })
+
+  it('builds the model steps from what the machine\'s Claude reported, fastest first', () => {
+    const steps = claudeModelSteps([
+      { id: 'default', name: 'Default (recommended)', description: 'Opus 5.5' },
+      { id: 'opus', name: 'Opus 5.5' },
+      { id: 'fable', name: 'Fable 5.1' },
+      { id: 'mythos' },
+      { id: 'haiku', name: 'Haiku 5.5' },
+      { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6' },
+      { name: 'no id' },
+      null,
+    ])
+    expect(steps).toEqual([
+      { id: '', name: 'Default (Opus 5.5)' },
+      { id: 'haiku', name: 'Haiku 5.5' },
+      { id: 'opus', name: 'Opus 5.5' },
+      { id: 'fable', name: 'Fable 5.1' },
+      { id: 'mythos', name: 'mythos' },
+    ])
+    expect(claudeModelSteps([{ id: 'sonnet', name: 'Sonnet 5.5' }])[0]).toEqual({ id: '', name: 'Default' })
+    expect(claudeModelSteps([])).toBe(CLAUDE_CODE_MODELS)
+    expect(claudeModelSteps(undefined)).toBe(CLAUDE_CODE_MODELS)
+  })
+
+  it('places a value on its step, and anything else on the default', () => {
+    expect(stepIndex(CLAUDE_CODE_MODELS, 'opus')).toBe(3)
+    expect(stepIndex(CLAUDE_CODE_EFFORTS, 'max')).toBe(5)
+    expect(stepIndex(CLAUDE_CODE_MODELS, 'opusplan')).toBe(0)
+    expect(stepIndex(CLAUDE_CODE_MODELS, undefined)).toBe(0)
+  })
+
+  it('has nothing remembered at first, and round-trips what was', () => {
+    expect(lastClaudeCodeChoice()).toBeNull()
+    rememberClaudeCodeChoice({ model: 'sonnet', effort: 'xhigh' })
+    expect(lastClaudeCodeChoice()).toEqual({ model: 'sonnet', effort: 'xhigh' })
+    rememberClaudeCodeChoice({})
+    expect(lastClaudeCodeChoice()).toEqual({ model: '', effort: '' })
+  })
+
+  it('treats unreadable or misshapen storage as nothing remembered', () => {
+    for (const bad of ['not json', 'null', '3']) {
+      localStorage.setItem('agentrq:lastClaudeCode', bad)
+      expect(lastClaudeCodeChoice()).toBeNull()
+    }
+    // A value no slider step stands for opens on the default instead.
+    localStorage.setItem('agentrq:lastClaudeCode', '{"model":"opusplan","effort":"ultra"}')
+    expect(lastClaudeCodeChoice()).toEqual({ model: '', effort: '' })
+    localStorage.setItem('agentrq:lastClaudeCode', '{"model":"opus"}')
+    expect(lastClaudeCodeChoice()).toEqual({ model: 'opus', effort: '' })
+  })
+
+  it('survives storage that throws', () => {
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('QuotaExceededError: storage is full') })
+    expect(() => rememberClaudeCodeChoice({ model: 'opus' })).not.toThrow()
+    set.mockRestore()
+  })
+
+  it('opens each kind on its last launch, or its defaults', () => {
+    expect(initialParams('claude-code')).toEqual({ model: '', effort: '' })
+    expect(initialParams('acp-gateway')).toEqual(GATEWAY_DEFAULTS)
+    rememberParams('claude-code', { model: 'haiku', effort: 'low' })
+    rememberParams('acp-gateway', { agent: 'codex-acp', model: 'gpt-5.5' })
+    expect(initialParams('claude-code')).toEqual({ model: 'haiku', effort: 'low' })
+    expect(initialParams('acp-gateway')).toEqual({ agent: 'codex-acp', model: 'gpt-5.5' })
+  })
+
+  it('keeps each kind\'s fields apart when the kind is switched back and forth', () => {
+    const kind = ref('claude-code')
+    const params = useKindParams(kind)
+    params.value = { model: 'opus' }
+    kind.value = 'acp-gateway'
+    expect(params.value).toEqual(GATEWAY_DEFAULTS)
+    params.value = { ...params.value, agent: 'codex-acp' }
+    kind.value = 'claude-code'
+    expect(params.value).toEqual({ model: 'opus' })
+    kind.value = 'acp-gateway'
+    expect(params.value.agent).toBe('codex-acp')
+  })
+
+  it('sends the chosen model with a Claude Code launch, and remembers it', async () => {
+    const h = harness()
+    await h.l.load()
+    h.l.workspaceId.value = 'ws1'
+    h.l.params.value = { model: ' opus ', effort: 'max' }
+    await h.l.launch()
+    expect(h.deps.launchAgent).toHaveBeenCalledWith('ws1', expect.objectContaining({ kind: 'claude-code', model: 'opus', effort: 'max' }))
+    expect(lastClaudeCodeChoice()).toEqual({ model: 'opus', effort: 'max' })
+  })
+
+  it('sends no model when none was chosen, so Claude Code starts on its default', async () => {
+    const h = harness()
+    await h.l.load()
+    h.l.workspaceId.value = 'ws1'
+    await h.l.launch()
+    expect(h.deps.launchAgent.mock.calls[0][1]).not.toHaveProperty('model')
+    expect(h.deps.launchAgent.mock.calls[0][1]).not.toHaveProperty('effort')
+    expect(lastClaudeCodeChoice()).toEqual({ model: '', effort: '' })
   })
 })

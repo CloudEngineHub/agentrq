@@ -390,6 +390,10 @@ func TestHelloDescribesTheMachine(t *testing.T) {
 	if !slices.Contains(hello.Capabilities, wire.CapabilityFork) {
 		t.Errorf("capabilities = %v, want %q", hello.Capabilities, wire.CapabilityFork)
 	}
+	// Nor a Claude Code launch that names a model or an effort.
+	if !slices.Contains(hello.Capabilities, wire.CapabilityClaudeOptions) {
+		t.Errorf("capabilities = %v, want %q", hello.Capabilities, wire.CapabilityClaudeOptions)
+	}
 }
 
 // Who the daemon claims to be travels on the upgrade request.

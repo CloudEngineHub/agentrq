@@ -28,6 +28,9 @@ export const KINDS = [
     label: 'Claude Code',
     description: 'Reads the workspace over MCP. The daemon writes its config.',
     needs: [],
+    // Blank is Claude Code's own default for either, as it was before they
+    // could be chosen here.
+    optional: ['model', 'effort'],
   },
   {
     id: 'acp-gateway',
@@ -47,6 +50,66 @@ export const KINDS = [
  * required field.
  */
 export const GATEWAY_DEFAULTS = { model: 'gemini-3.8-flash-high', agent: 'antigravity-acp' }
+
+/**
+ * The two sliders Claude Code launches with, each a list of steps from left to
+ * right. The first step of each is blank, which is Claude Code's own default.
+ *
+ * The models are aliases, each following the latest model of its family, so
+ * the list does not go stale with a release.
+ */
+export const CLAUDE_CODE_MODELS = [
+  { id: '', name: 'Default' },
+  { id: 'haiku', name: 'Haiku' },
+  { id: 'sonnet', name: 'Sonnet' },
+  { id: 'opus', name: 'Opus' },
+  { id: 'fable', name: 'Fable' },
+]
+
+/** The levels `claude --effort` accepts, lowest first, after the default. */
+export const CLAUDE_CODE_EFFORTS = [
+  { id: '', name: 'Default' },
+  { id: 'low', name: 'Low' },
+  { id: 'medium', name: 'Medium' },
+  { id: 'high', name: 'High' },
+  { id: 'xhigh', name: 'Extra high' },
+  { id: 'max', name: 'Max' },
+]
+
+/** The gateway's name for Claude, which it can ask for the models a machine's Claude offers. */
+export const CLAUDE_ACP_AGENT = 'claude-acp'
+
+/** The model families, fastest first, which is the order the model slider runs in. */
+const CLAUDE_FAMILIES = ['haiku', 'sonnet', 'opus', 'fable']
+
+/**
+ * The model slider's steps from what a machine's Claude reported, or the fixed
+ * list when it reported nothing.
+ *
+ * Only the aliases are kept: they follow the newest model of each family, and
+ * the dated full ids beside them would crowd a slider past reading. Claude's
+ * own `default` becomes the blank first step, named after what it stands for.
+ */
+export function claudeModelSteps(reported) {
+  const models = (reported ?? []).filter((m) => typeof m?.id === 'string' && m.id)
+  if (!models.length) return CLAUDE_CODE_MODELS
+  const fallback = models.find((m) => m.id === 'default')
+  const aliases = models
+    .filter((m) => m.id !== 'default' && !m.id.startsWith('claude-'))
+    .map((m) => ({ id: m.id, name: m.name || m.id }))
+  const rank = (id) => {
+    const i = CLAUDE_FAMILIES.indexOf(id)
+    return i === -1 ? CLAUDE_FAMILIES.length : i
+  }
+  aliases.sort((a, b) => rank(a.id) - rank(b.id))
+  const name = fallback?.description ? `Default (${fallback.description})` : 'Default'
+  return [{ id: '', name }, ...aliases]
+}
+
+/** Where a value sits on a slider's steps; one that is not a step sits on the default. */
+export function stepIndex(steps, value) {
+  return Math.max(0, steps.findIndex((step) => step.id === value))
+}
 
 /**
  * Where the gateway's last agent and model are remembered.
@@ -85,6 +148,67 @@ export function rememberAcpGatewayChoice({ agent, model }) {
     // Nothing to fall back to here: the next launch just opens on
     // GATEWAY_DEFAULTS again, exactly as it did before this existed.
   }
+}
+
+/** Where Claude Code's last model and effort are remembered, the same way as the gateway's. */
+const LAST_CLAUDE_CODE_KEY = 'agentrq:lastClaudeCode'
+
+/** The model and effort somebody last launched Claude Code with, or null. */
+export function lastClaudeCodeChoice() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LAST_CLAUDE_CODE_KEY) ?? 'null')
+    if (!parsed || typeof parsed !== 'object') return null
+    // Only what the sliders can show is restored; anything else opens on the
+    // default rather than on a value no step stands for.
+    return {
+      model: CLAUDE_CODE_MODELS[stepIndex(CLAUDE_CODE_MODELS, parsed.model)].id,
+      effort: CLAUDE_CODE_EFFORTS[stepIndex(CLAUDE_CODE_EFFORTS, parsed.effort)].id,
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Remembers a Claude Code launch's model and effort, blanks included, for the next one. */
+export function rememberClaudeCodeChoice({ model, effort }) {
+  try {
+    localStorage.setItem(LAST_CLAUDE_CODE_KEY, JSON.stringify({ model: model ?? '', effort: effort ?? '' }))
+  } catch {
+    // The next launch opens on Claude Code's default instead.
+  }
+}
+
+/** The parameters a kind's fields open on: its last launch, or its defaults. */
+export function initialParams(kind) {
+  if (kind === 'acp-gateway') return lastAcpGatewayChoice() ?? { ...GATEWAY_DEFAULTS }
+  return lastClaudeCodeChoice() ?? { model: '', effort: '' }
+}
+
+/** Remembers a launch's parameters for the next launch of the same kind. */
+export function rememberParams(kind, extra) {
+  if (kind === 'acp-gateway') rememberAcpGatewayChoice(extra)
+  else rememberClaudeCodeChoice(extra)
+}
+
+/**
+ * The fields for whichever kind is picked, each kind keeping its own.
+ *
+ * Both kinds have a model, and they are not interchangeable: a gateway model
+ * handed to Claude Code is refused, so switching kind brings back what was
+ * chosen for that kind rather than carrying the other's across.
+ */
+export function useKindParams(kind) {
+  const byKind = {}
+  const params = ref(initialParams(kind.value))
+  watch(
+    kind,
+    (next, prev) => {
+      byKind[prev] = params.value
+      params.value = byKind[next] ?? initialParams(next)
+    },
+    { flush: 'sync' }
+  )
+  return params
 }
 
 /**
@@ -283,7 +407,7 @@ export function paramsEligibility(kind, params) {
   }
   // Optional fields are validated the same way when given, and skipped
   // entirely when not — leaving one blank is how "no preference" arrives.
-  for (const field of spec.optional ?? []) {
+  for (const field of spec.optional) {
     const value = (params?.[field] ?? '').trim()
     if (value && !SAFE_PARAM.test(value)) return { ok: false, reason: BAD_SHAPE_REASON(field) }
   }
@@ -301,7 +425,7 @@ export function launchParamsPayload(kind, params) {
   if (!spec) return {}
   const extra = {}
   for (const field of spec.needs) extra[field] = (params?.[field] ?? '').trim()
-  for (const field of spec.optional ?? []) {
+  for (const field of spec.optional) {
     const value = (params?.[field] ?? '').trim()
     if (value) extra[field] = value
   }
@@ -338,6 +462,7 @@ export function useAcpGatewaySuggestions({
 }) {
   const acpAgents = ref([])
   const acpModels = ref([])
+  const claudeReported = ref([])
 
   watch(
     () => (kind.value === 'acp-gateway' ? getMachineId() : ''),
@@ -370,7 +495,30 @@ export function useAcpGatewaySuggestions({
     }
   )
 
-  return { acpAgents, acpModels }
+  // Claude Code's model slider, asked of the same machine through the gateway.
+  // The folder is the workspace's for the same reason as the lookup above.
+  watch(
+    () => {
+      if (kind.value !== 'claude-code') return ''
+      const machineId = getMachineId()
+      const workspaceId = getWorkspaceId()
+      return machineId && workspaceId ? `${workspaceId}/${machineId}` : ''
+    },
+    async (key) => {
+      claudeReported.value = []
+      if (!key) return
+      try {
+        const data = await fetchAcpModels(getWorkspaceId(), getMachineId(), CLAUDE_ACP_AGENT)
+        claudeReported.value = data?.models ?? []
+      } catch {
+        claudeReported.value = []
+      }
+    },
+    { immediate: true }
+  )
+  const claudeModels = computed(() => claudeModelSteps(claudeReported.value))
+
+  return { acpAgents, acpModels, claudeModels }
 }
 
 /**
@@ -398,9 +546,9 @@ export function useAgentLaunch(deps = {}) {
 
   const workspaceId = ref('')
   const kind = ref(KINDS[0].id)
-  const params = ref(lastAcpGatewayChoice() ?? { ...GATEWAY_DEFAULTS })
+  const params = useKindParams(kind)
 
-  const { acpAgents, acpModels } = useAcpGatewaySuggestions({
+  const { acpAgents, acpModels, claudeModels } = useAcpGatewaySuggestions({
     kind,
     params,
     getMachineId: () => machine?.value?.id,
@@ -468,7 +616,7 @@ export function useAgentLaunch(deps = {}) {
         rows,
         ...extra,
       })
-      if (kind.value === 'acp-gateway') rememberAcpGatewayChoice(extra)
+      rememberParams(kind.value, extra)
       rememberLaunchChoice(workspaceId.value, { machineId: machine.value.id, kind: kind.value })
       return created?.session ?? null
     } catch (e) {
@@ -493,6 +641,7 @@ export function useAgentLaunch(deps = {}) {
     canLaunch,
     acpAgents,
     acpModels,
+    claudeModels,
     load,
     launch,
   }

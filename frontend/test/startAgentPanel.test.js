@@ -170,6 +170,37 @@ describe('StartAgentPanel', () => {
     expect(push).toHaveBeenCalledWith('/sessions/sess-9')
   })
 
+  it('picks Claude Code\'s model and effort on two sliders, and shows neither for the gateway', async () => {
+    localStorage.clear()
+    const { el } = await mount({ workspace: WORKSPACE, variant: 'card' }, [ONLINE])
+    const model = el.querySelector('#start-agent-model')
+    const effort = el.querySelector('#start-agent-effort')
+    expect(model.type).toBe('range')
+    expect(effort.type).toBe('range')
+    expect(el.querySelector('[data-test=start-agent-model-value]').textContent.trim()).toBe('Default')
+
+    model.value = '3'
+    model.dispatchEvent(new Event('input'))
+    effort.value = '4'
+    effort.dispatchEvent(new Event('input'))
+    await settle()
+    expect(el.querySelector('[data-test=start-agent-model-value]').textContent.trim()).toBe('Opus')
+    expect(el.querySelector('[data-test=start-agent-effort-value]').textContent.trim()).toBe('Extra high')
+
+    el.querySelector('#start-agent-kind-acp-gateway').click()
+    await settle()
+    expect(el.querySelector('#start-agent-effort')).toBeNull()
+    expect(el.querySelector('#start-agent-agent')).toBeTruthy()
+    el.querySelector('#start-agent-kind-claude-code').click()
+    await settle()
+
+    const go = [...el.querySelectorAll('button')].find((b) => /Start an agent/i.test(b.textContent))
+    go.click()
+    await settle()
+    expect(launchAgent).toHaveBeenLastCalledWith('ws1', expect.objectContaining({ kind: 'claude-code', model: 'opus', effort: 'xhigh' }))
+    localStorage.clear()
+  })
+
   describe('on a fork', () => {
     // A fork's folder is made from its parent's on the first launch, so "no
     // working directory" is not a reason to refuse it — its parent's is.

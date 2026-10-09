@@ -107,6 +107,50 @@ func TestGatewayWithoutModelIsAccepted(t *testing.T) {
 	}
 }
 
+// A chosen model goes before the channel flag, and a blank one adds nothing,
+// so Claude Code starts on its own default exactly as it did before.
+func TestClaudeCodeTakesAnOptionalModel(t *testing.T) {
+	c, err := Resolve(KindClaudeCode, Params{Workspace: "w", ServerName: "s", Model: "opus"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	want := "claude --name w --model opus --dangerously-load-development-channels server:s"
+	if got := strings.Join(c.Argv, " "); got != want {
+		t.Errorf("argv = %q, want %q", got, want)
+	}
+
+	c, err = Resolve(KindClaudeCode, Params{Workspace: "w", ServerName: "s"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := strings.Join(c.Argv, " "); strings.Contains(got, "--model") || strings.Contains(got, "--effort") {
+		t.Errorf("argv = %q, want no --model or --effort when neither was chosen", got)
+	}
+}
+
+// Every level Claude Code accepts is passed on, after the model.
+func TestClaudeCodeTakesAnOptionalEffort(t *testing.T) {
+	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		c, err := Resolve(KindClaudeCode, Params{Workspace: "w", ServerName: "s", Model: "opus", Effort: effort})
+		if err != nil {
+			t.Fatalf("Resolve with effort %q: %v", effort, err)
+		}
+		want := "claude --name w --model opus --effort " + effort + " --dangerously-load-development-channels server:s"
+		if got := strings.Join(c.Argv, " "); got != want {
+			t.Errorf("argv = %q, want %q", got, want)
+		}
+	}
+}
+
+// Effort is a closed list, so anything else is refused rather than passed on.
+func TestClaudeCodeRefusesAnUnknownEffort(t *testing.T) {
+	for _, effort := range []string{"ultra", "HIGH", "--max", "high max"} {
+		if _, err := Resolve(KindClaudeCode, Params{Workspace: "w", ServerName: "s", Effort: effort}); !errors.Is(err, ErrBadParameter) {
+			t.Errorf("Resolve accepted effort %q, error = %v", effort, err)
+		}
+	}
+}
+
 // The values reach an argv. Go's exec does not go through a shell, so there is
 // no quoting to get wrong — but a value starting with a dash would be read as
 // a flag by the program being run, which is its own way of turning a parameter
@@ -122,6 +166,9 @@ func TestIdentifiersThatCouldBecomeFlagsOrWorseAreRefused(t *testing.T) {
 	for _, v := range bad {
 		if _, err := Resolve(KindACPGateway, Params{Model: v, Agent: "a"}); err == nil {
 			t.Errorf("Resolve accepted model=%q", v)
+		}
+		if _, err := Resolve(KindClaudeCode, Params{Model: v, Workspace: "w", ServerName: "s"}); !errors.Is(err, ErrBadParameter) {
+			t.Errorf("Resolve accepted a claude-code model=%q, error = %v", v, err)
 		}
 	}
 

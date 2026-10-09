@@ -46,8 +46,11 @@ type Params struct {
 	// ServerName is the MCP server's name in .mcp.json, which is also what
 	// `server:<name>` refers to on the command line. One decision, not two.
 	ServerName string
-	// Model and Agent are the acp-gateway's selections.
+	// Model is either kind's model, blank for the agent's own default.
 	Model string
+	// Effort is claude-code's effort level, blank for its own default.
+	Effort string
+	// Agent is the acp-gateway's selection.
 	Agent string
 }
 
@@ -74,6 +77,9 @@ var safeParam = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 // a name cannot forge a line in a log or move a terminal's cursor). Everything
 // between those is a name, and there is no shell for it to be dangerous in.
 var safeName = regexp.MustCompile("^[\\p{L}\\p{N}][^\\x00-\\x1f\\x7f]{0,127}$")
+
+// claudeEfforts are the levels `claude --effort` accepts.
+var claudeEfforts = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 
 // checkParam validates an identifier, naming the field so a refusal is
 // actionable.
@@ -139,6 +145,12 @@ func Resolve(kind Kind, p Params) (Command, error) {
 		if err := checkParam("serverName", p.ServerName); err != nil {
 			return Command{}, err
 		}
+		if err := checkOptionalParam("model", p.Model); err != nil {
+			return Command{}, err
+		}
+		if p.Effort != "" && !claudeEfforts[p.Effort] {
+			return Command{}, fmt.Errorf("%w: effort=%q", ErrBadParameter, p.Effort)
+		}
 		// --dangerously-load-development-channels is always passed, confirmed
 		// by the owner on 2026-09-15 when I asked whether a daemon should.
 		//
@@ -154,13 +166,18 @@ func Resolve(kind Kind, p Params) (Command, error) {
 		//
 		// `server:<name>` names the MCP server in .mcp.json, which is why the
 		// daemon writes that file and passes this argument as one step.
+		argv := []string{"claude", "--name", p.Workspace}
+		if p.Model != "" {
+			argv = append(argv, "--model", p.Model)
+		}
+		if p.Effort != "" {
+			argv = append(argv, "--effort", p.Effort)
+		}
 		return Command{
-			Argv: []string{
-				"claude",
-				"--name", p.Workspace,
+			Argv: append(argv,
 				"--dangerously-load-development-channels",
-				"server:" + p.ServerName,
-			},
+				"server:"+p.ServerName,
+			),
 			NeedsMCPConfig:      true,
 			NeedsClaudeSettings: true,
 		}, nil
@@ -174,6 +191,9 @@ func Resolve(kind Kind, p Params) (Command, error) {
 		// this daemon can't leave unresolved.
 		if err := checkOptionalParam("model", p.Model); err != nil {
 			return Command{}, err
+		}
+		if p.Effort != "" && !claudeEfforts[p.Effort] {
+			return Command{}, fmt.Errorf("%w: effort=%q", ErrBadParameter, p.Effort)
 		}
 		argv := []string{
 			"npx", "-y", "@agentrq/acp-gateway@latest",

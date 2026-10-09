@@ -86,6 +86,11 @@ const CapabilityFork = "fork"
 // unless this is listed.
 const CapabilityForkCleanup = "removeForkDir"
 
+// CapabilityClaudeOptions is a daemon that passes [StartSession.Model] and
+// [StartSession.Effort] to claude-code. An older one drops both and starts
+// Claude's defaults.
+const CapabilityClaudeOptions = "claudeOptions"
+
 // CapabilityRestart is a daemon that honours [OpRestart], and CapabilityUpdate
 // one that can also install an [OpUpdateNow]. An older daemon ignores the op,
 // so the backend refuses to send either unless it is listed here and the
@@ -273,9 +278,12 @@ type StartSession struct {
 	CoreMCPURL string `json:"coreMcpUrl,omitempty"`
 	// Workspace is what claude-code reports itself as.
 	Workspace string `json:"workspace,omitempty"`
-	// Model and Agent are the acp-gateway's selections.
-	Model string `json:"model,omitempty"`
-	Agent string `json:"agent,omitempty"`
+	// Model is either kind's model, blank for the agent's own default, and
+	// Effort is claude-code's effort level; either for claude-code needs
+	// [CapabilityClaudeOptions]. Agent is the acp-gateway's selection.
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+	Agent  string `json:"agent,omitempty"`
 
 	// Fork runs this session in a folder of its own, made from Dir, for a
 	// workspace fork. Nil for every other workspace.
