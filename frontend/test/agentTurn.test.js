@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest'
 
-import { agentIsWorking, workingPlaceholder } from '../src/composables/useAgentTurn'
+import { agentIsWorking, agentIsBusy, turnStartedAt, activitySince, formatElapsed, workDurations, workingPlaceholder } from '../src/composables/useAgentTurn'
 
 const gateway = { agentSupportsStop: true, agentConnected: true }
 const ongoing = { status: 'ongoing', assignee: 'agent' }
@@ -199,5 +199,116 @@ describe('what the composer says', () => {
   it('says the agent is working and that the message will be queued', () => {
     expect(workingPlaceholder()).toMatch(/working/i)
     expect(workingPlaceholder()).toMatch(/queued/i)
+  })
+})
+
+describe('agentIsBusy', () => {
+  const direct = { agentSupportsStop: false, agentConnected: true }
+
+  it('follows the turn rules where the agent can be stopped', () => {
+    expect(agentIsBusy({ task: ongoing, workspace: gateway, messages: [fromHuman()] })).toBe(true)
+    expect(agentIsBusy({ task: ongoing, workspace: gateway, messages: [fromHuman(), usageFooter()] })).toBe(false)
+  })
+
+  it('is false with nobody connected', () => {
+    const away = { ...direct, agentConnected: false }
+    expect(agentIsBusy({ task: ongoing, workspace: away, messages: [fromHuman()] })).toBe(false)
+    expect(agentIsBusy({ task: ongoing, workspace: { ...gateway, agentConnected: false }, messages: [fromHuman()] })).toBe(false)
+    expect(agentIsBusy()).toBe(false)
+  })
+
+  it('is true for a connected agent that has not answered yet', () => {
+    expect(agentIsBusy({ task: ongoing, workspace: direct, messages: [fromHuman()] })).toBe(true)
+    expect(agentIsBusy({ task: ongoing, workspace: direct, messages: [] })).toBe(true)
+    expect(agentIsBusy({ task: ongoing, workspace: direct })).toBe(true)
+  })
+
+  it('is false once the agent has answered, and for telemetry it is still busy', () => {
+    expect(agentIsBusy({ task: ongoing, workspace: direct, messages: [fromHuman(), fromAgent()] })).toBe(false)
+    expect(agentIsBusy({ task: ongoing, workspace: direct, messages: [fromHuman(), usageFooter()] })).toBe(true)
+  })
+
+  it('is false for a task that is not the agent\'s to work on', () => {
+    expect(agentIsBusy({ task: { status: 'ongoing', assignee: 'human' }, workspace: direct, messages: [fromHuman()] })).toBe(false)
+    expect(agentIsBusy({ task: { status: 'completed', assignee: 'agent' }, workspace: direct, messages: [fromHuman()] })).toBe(false)
+  })
+})
+
+describe('turnStartedAt', () => {
+  it('is when the last person spoke', () => {
+    const messages = [
+      { sender: 'human', createdAt: '2026-10-11T10:00:00Z' },
+      { sender: 'agent', createdAt: '2026-10-11T10:01:00Z' },
+      { sender: 'slack', createdAt: '2026-10-11T10:02:00Z' },
+    ]
+    expect(turnStartedAt(messages)).toBe(Date.parse('2026-10-11T10:02:00Z'))
+  })
+
+  it('is null when nobody has spoken', () => {
+    expect(turnStartedAt([{ sender: 'agent', createdAt: '2026-10-11T10:00:00Z' }])).toBeNull()
+    expect(turnStartedAt([{ sender: 'human' }])).toBeNull()
+    expect(turnStartedAt()).toBeNull()
+  })
+})
+
+describe('formatElapsed', () => {
+  it('reads seconds, minutes and hours', () => {
+    expect(formatElapsed(7400)).toBe('7s')
+    expect(formatElapsed(65000)).toBe('1m 05s')
+    expect(formatElapsed(3720000)).toBe('1h 02m')
+    expect(formatElapsed(-5)).toBe('0s')
+  })
+})
+
+describe('workDurations', () => {
+  const at = (sender, id, time, extra = {}) => ({ id, sender, createdAt: `2026-10-11T10:${time}Z`, ...extra })
+
+  it('measures each agent message from the person message it answers', () => {
+    const messages = [
+      at('human', 'h1', '00:00'),
+      at('agent', 'a1', '00:07'),
+      at('agent', 'a2', '01:05'),
+      at('human', 'h2', '02:00'),
+      at('agent', 'a3', '02:30'),
+    ]
+    expect(workDurations(messages)).toEqual({ a1: '7s', a2: '1m 05s', a3: '30s' })
+  })
+
+  it('skips telemetry, sub-second replies, and messages with nothing to answer', () => {
+    const messages = [
+      at('agent', 'first', '00:00'),
+      at('human', 'h1', '00:10'),
+      at('agent', 'u1', '00:20', { metadata: { type: 'agent_usage' } }),
+      at('agent', 'quick', '00:10'),
+      { id: 'undated', sender: 'agent' },
+      { id: 'h2', sender: 'human' },
+      at('agent', 'orphan', '00:40'),
+    ]
+    expect(workDurations(messages)).toEqual({})
+  })
+
+  it('is empty for no messages', () => {
+    expect(workDurations()).toEqual({})
+  })
+})
+
+describe('activitySince', () => {
+  const at = (sender, id, time, extra = {}) => ({ id, sender, createdAt: `2026-10-11T10:${time}Z`, ...extra })
+
+  it('starts at the turn, and moves to the agent\'s latest message', () => {
+    expect(activitySince([at('human', 'h', '00:00')])).toBe(Date.parse('2026-10-11T10:00:00Z'))
+    expect(activitySince([at('human', 'h', '00:00'), at('agent', 'a', '01:00')])).toBe(Date.parse('2026-10-11T10:01:00Z'))
+  })
+
+  it('ignores telemetry and undated messages, and keeps the turn start if later', () => {
+    const messages = [
+      at('agent', 'a', '00:00'),
+      at('human', 'h', '02:00'),
+      at('agent', 'u', '03:00', { metadata: { type: 'agent_usage' } }),
+    ]
+    expect(activitySince(messages)).toBe(Date.parse('2026-10-11T10:02:00Z'))
+    expect(activitySince([{ id: 'x', sender: 'agent' }])).toBeNull()
+    expect(activitySince([at('agent', 'a', '01:00')])).toBe(Date.parse('2026-10-11T10:01:00Z'))
+    expect(activitySince()).toBeNull()
   })
 })

@@ -146,3 +146,85 @@ export function agentIsWorking({ task, workspace, messages } = {}) {
 export function workingPlaceholder() {
   return 'The agent is working — your message will be queued until it finishes'
 }
+
+/**
+ * Whether to tell the person the agent is busy, which is a wider question than
+ * `agentIsWorking`: that one decides Send versus Stop and so only holds where
+ * the agent can be stopped. This one is only a sign of life, so it also holds
+ * for an agent speaking MCP directly — connected, handed the task, and not yet
+ * answered. A task waiting on the human, or with nobody connected, is not busy.
+ */
+export function agentIsBusy({ task, workspace, messages } = {}) {
+  if (!workspace?.agentConnected) return false
+  if (workspace.agentSupportsStop) return agentIsWorking({ task, workspace, messages })
+  if (task?.assignee === 'human') return false
+  if (!ACTIVE_STATUSES.has(task?.status)) return false
+
+  const list = Array.isArray(messages) ? messages : []
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const message = list[i]
+    // Anything the agent put into the thread but telemetry is it answering or
+    // asking, so the next move is the human's.
+    if (message?.sender === 'agent' && agentTelemetryKind(message) === null) return false
+    if (isFromAPerson(message)) return true
+  }
+  return true
+}
+
+/** When the turn being worked on began: the last thing a person said, if any. */
+export function turnStartedAt(messages) {
+  const list = Array.isArray(messages) ? messages : []
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (isFromAPerson(list[i]) && list[i].createdAt) return new Date(list[i].createdAt).getTime()
+  }
+  return null
+}
+
+/** "7s", "1m 05s", "1h 02m": how long the agent has been at it. */
+export function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const s = total % 60
+  const m = Math.floor(total / 60) % 60
+  const h = Math.floor(total / 3600)
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`
+  return `${s}s`
+}
+
+/**
+ * How long the agent took to produce each of its messages, as text keyed by
+ * message id: the time from the last person's message before it. Telemetry and
+ * messages with nothing before them to answer have no entry.
+ */
+export function workDurations(messages) {
+  const out = {}
+  let since = null
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (isFromAPerson(message)) {
+      since = message.createdAt ? new Date(message.createdAt).getTime() : null
+    } else if (since !== null && message?.sender === 'agent' && agentTelemetryKind(message) === null && message.createdAt) {
+      const ms = new Date(message.createdAt).getTime() - since
+      if (ms >= 1000) out[message.id] = formatElapsed(ms)
+    }
+  }
+  return out
+}
+
+/**
+ * Where the "what it is doing" list starts: the turn's beginning, or the
+ * agent's latest message if it has spoken since. A message is the agent
+ * reporting what it did, so the list of what it did clears with it and starts
+ * again from there.
+ */
+export function activitySince(messages) {
+  const list = Array.isArray(messages) ? messages : []
+  let since = turnStartedAt(list)
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (isAPlainReply(list[i]) && list[i].createdAt) {
+      const at = new Date(list[i].createdAt).getTime()
+      if (since === null || at > since) since = at
+      break
+    }
+  }
+  return since
+}

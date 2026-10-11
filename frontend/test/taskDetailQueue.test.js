@@ -65,6 +65,8 @@ const usageFooter = (id) => ({
   createdAt: '2026-09-22T07:01:00Z',
 })
 
+let toolCalls = []
+
 /** A task whose agent is mid-turn: somebody spoke, and no footer has landed. */
 const workingTask = () => ({
   id: 't1',
@@ -73,7 +75,7 @@ const workingTask = () => ({
   assignee: 'agent',
   body: '',
   messages: [fromHuman('h1')],
-  toolCalls: [],
+  toolCalls,
 })
 
 const respondToTask = vi.fn(() => Promise.resolve({ task: workingTask() }))
@@ -190,6 +192,7 @@ async function mount() {
 }
 
 beforeEach(() => {
+  toolCalls = []
   while (mounted.length) mounted.pop().unmount()
   document.body.innerHTML = ''
   // The queue is kept on disk on purpose, so it outlives a test as readily as
@@ -299,6 +302,26 @@ describe('changing a queued message', () => {
 
     expect(text()).not.toContain('first thought')
     expect(text()).toContain('second thought')
+  })
+})
+
+describe('the working indicator', () => {
+  it('shows while the agent is mid-turn, and goes when the turn ends', async () => {
+    const { el, endTheTurn } = await mount()
+    const indicator = () => el.querySelector('[data-testid="agent-working"]')
+    expect(indicator()?.textContent).toMatch(/Agent is working · \d+/)
+
+    await endTheTurn()
+    expect(indicator()).toBeNull()
+  })
+
+  it('lists the last three tool calls in words while the agent works', async () => {
+    toolCalls = Array.from({ length: 6 }, (_, i) => ({
+      id: `c${i}`, toolName: 'Bash', inputPreview: `{"command":"step ${i}"}`, createdAt: `2026-09-22T07:0${i}:00Z`,
+    }))
+    const { el } = await mount()
+    const rows = [...el.querySelectorAll('[data-testid="agent-working-tools"] li')].map((li) => li.textContent)
+    expect(rows).toEqual(['Ran step 3', 'Ran step 4', 'Ran step 5'])
   })
 })
 
@@ -456,7 +479,7 @@ describe('reading a queued message', () => {
   it('shows the raw text when MD is switched off, and renders it again when on', async () => {
     const { el, send } = await mount()
     await send('make it **bold**')
-    const md = () => [...bubbleOf(el, 'make it').querySelectorAll('button')].find((b) => b.textContent.trim() === 'MD')
+    const md = () => [...bubbleOf(el, 'make it').parentElement.querySelectorAll('button')].find((b) => b.textContent.trim() === 'MD')
 
     md().click()
     await settle()
@@ -474,7 +497,7 @@ describe('reading a queued message', () => {
     const { el, send } = await mount()
     await send('make it **bold**')
 
-    bubbleOf(el, 'make it').querySelector('button[title="Copy raw text"]').click()
+    bubbleOf(el, 'make it').parentElement.querySelector('button[title="Copy raw text"]').click()
     await settle()
     expect(writeText).toHaveBeenCalledWith('make it **bold**')
   })
