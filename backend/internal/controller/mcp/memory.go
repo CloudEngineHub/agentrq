@@ -42,9 +42,14 @@ const (
 	// column is.
 	MaxMemoryNameLength = 32
 
-	// MaxMemoryBytes caps one memory at 16 KiB of UTF-8.
-	MaxMemoryBytes = 16 * 1024
+	// DefaultMaxMemoryBytes is MaxMemoryBytes when memory.maxFileSize is unset.
+	DefaultMaxMemoryBytes = 16 * 1024
 )
+
+// MaxMemoryBytes caps one memory, in bytes of UTF-8. Set once at startup from
+// memory.maxFileSize, before anything is served, and never above
+// model.MaxMemoryContentBytes, which the database refuses.
+var MaxMemoryBytes = DefaultMaxMemoryBytes
 
 // LoadMemoryFunc reads one of the workspace's memories.
 //
@@ -128,7 +133,7 @@ func resolveMemoryName(name string) (string, error) {
 // can decide what to drop, which is a judgement only it can make.
 func validateMemoryContent(content string) error {
 	if n := len(content); n > MaxMemoryBytes {
-		return fmt.Errorf("memory is %d bytes; the limit is %d bytes (16 KiB). Split it across named memories and list them in %s", n, MaxMemoryBytes, DefaultMemoryName)
+		return fmt.Errorf("memory is %d bytes; the limit is %d bytes (%d KiB). Split it across named memories and list them in %s", n, MaxMemoryBytes, MaxMemoryBytes/1024, DefaultMemoryName)
 	}
 	return nil
 }

@@ -203,3 +203,19 @@ func TestWithName(t *testing.T) {
 		}
 	}
 }
+
+// skills.maxFileSize moves the SKILL.md cap and leaves the other files' alone.
+func TestCheckContent_ConfiguredSkillFileLimit(t *testing.T) {
+	MaxSkillFileBytes = 128 * 1024
+	t.Cleanup(func() { MaxSkillFileBytes = DefaultMaxSkillFileBytes })
+
+	if err := CheckContent(FileName, filled(128*1024)); err != nil {
+		t.Errorf("SKILL.md at the configured limit: %v", err)
+	}
+	if err := CheckContent(FileName, filled(128*1024+1)); err == nil || !strings.Contains(err.Error(), "128 KiB") {
+		t.Errorf("SKILL.md over the configured limit: got %v", err)
+	}
+	if err := CheckContent("references/big.md", filled(MaxSubFileBytes+1)); err == nil || !strings.Contains(err.Error(), "64 KiB") {
+		t.Errorf("sub file over its fixed limit: got %v", err)
+	}
+}

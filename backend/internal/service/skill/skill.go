@@ -25,18 +25,27 @@ const (
 	// it is what Claude Code, Antigravity and every published skill use.
 	FileName = "SKILL.md"
 
-	// MaxSkillFileBytes caps SKILL.md, which may be larger than its files.
-	MaxSkillFileBytes = 96 * 1024
+	// DefaultMaxSkillFileBytes is MaxSkillFileBytes when skills.maxFileSize is unset.
+	DefaultMaxSkillFileBytes = 96 * 1024
 	// MaxSubFileBytes caps every other file in a skill.
 	MaxSubFileBytes = 64 * 1024
-	// MaxFiles caps the files in one skill, SKILL.md included.
-	MaxFiles = 256
+	// DefaultMaxFiles is MaxFiles when skills.maxFiles is unset.
+	DefaultMaxFiles = 256
 	// MaxNameLength is the longest skill name, in characters.
 	MaxNameLength = 64
 	// MaxDescriptionLength is the longest description, in characters.
 	MaxDescriptionLength = 1024
 	// MaxPathLength is the longest file path inside a skill, in characters.
 	MaxPathLength = 255
+)
+
+// Set once at startup from skills.maxFileSize and skills.maxFiles, before
+// anything is served.
+var (
+	// MaxSkillFileBytes caps SKILL.md, which may be larger than its files.
+	MaxSkillFileBytes = DefaultMaxSkillFileBytes
+	// MaxFiles caps the files in one skill, SKILL.md included.
+	MaxFiles = DefaultMaxFiles
 )
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)

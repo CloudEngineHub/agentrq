@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	mock_pubsub "github.com/agentrq/agentrq/backend/internal/service/mocks/pubsub"
+	"github.com/agentrq/agentrq/backend/internal/service/skill"
 	"github.com/golang/mock/gomock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -515,5 +516,41 @@ func TestMemoryToolsWithoutStorage(t *testing.T) {
 	}
 	if !del.IsError {
 		t.Error("deleteMemory should report that memory is unavailable")
+	}
+}
+
+// A configured limit is the one enforced, and the one the tools advertise.
+func TestConfiguredLimitsAreEnforcedAndAdvertised(t *testing.T) {
+	MaxMemoryBytes, skill.MaxSkillFileBytes, skill.MaxFiles = 40*1024, 128*1024, 10
+	t.Cleanup(func() {
+		MaxMemoryBytes, skill.MaxSkillFileBytes, skill.MaxFiles = DefaultMaxMemoryBytes, skill.DefaultMaxSkillFileBytes, skill.DefaultMaxFiles
+	})
+
+	ps := newMemoryServer(t, &memoryStore{})
+	res, _, err := ps.handleSaveMemory(context.Background(), &mcp.CallToolRequest{}, SaveMemoryParams{
+		Content: strings.Repeat("a", 40*1024+1),
+	})
+	if err != nil {
+		t.Fatalf("saveMemory: %v", err)
+	}
+	if text := resultText(t, res); !res.IsError || !strings.Contains(text, "40960 bytes (40 KiB)") {
+		t.Errorf("refusal should name the configured limit; got %q", text)
+	}
+
+	want := map[string]string{
+		"saveMemory": "at most 40 KiB",
+		"saveSkill":  "SKILL.md at most 128 KiB, any other file at most 64 KiB, UTF-8 text only, at most 10 files per skill",
+	}
+	for _, tool := range toolsOverTheWire(t) {
+		name, _ := tool["name"].(string)
+		if w, ok := want[name]; ok {
+			if d, _ := tool["description"].(string); !strings.Contains(d, w) {
+				t.Errorf("%s description %q should contain %q", name, d, w)
+			}
+			delete(want, name)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("tools not advertised: %v", want)
 	}
 }
