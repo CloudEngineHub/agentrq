@@ -47,84 +47,196 @@
 /**
  * `backend/internal/controller/mcp/server.go`, in registration order.
  *
- * Deliberately absent: anything that lists tasks. See above.
+ * Every tool but `help` takes an action and a payload; `help` only explains
+ * them. Deliberately absent: any action that lists tasks. See above.
  */
-export const WORKSPACE_TOOLS = Object.freeze([
-  'createTask',
-  'updateTaskStatus',
-  'reply',
-  'getAttachment',
-  'getWorkspace',
-  'getTask',
-  'publishEvent',
-  'loadMemory',
-  'saveMemory',
-  'deleteMemory',
-  'searchSkills',
-  'loadSkill',
-  'saveSkill',
-  'deleteSkill',
-  'pano',
-  'elicit',
-  'listSiteTools',
-  'getSiteToolDefinition',
-  'callSiteTool',
-])
+export const WORKSPACE_TOOLS = Object.freeze(['task', 'memory', 'skills', 'workspace', 'siteTools', 'pano', 'help'])
 
 /** `backend/internal/handler/coremcp/`, across every file that registers a tool. */
 export const SUPERVISOR_TOOLS = Object.freeze([
-  'listWorkspaces',
-  'createWorkspace',
-  'forkWorkspace',
-  'mergeFork',
-  'getWorkspace',
-  'updateWorkspace',
-  'getWorkspaceStats',
-  'listTasks',
-  'listAllTasks',
-  'createTask',
-  'getTask',
-  'respondToTask',
-  'replyToTask',
-  'updateTaskStatus',
-  'updateTaskOrder',
-  'updateTaskAssignee',
-  'updateTaskAllowAll',
-  'updateScheduledTask',
-  'deleteTask',
-  'getAttachment',
-  'listMemories',
-  'getMemory',
-  'searchSkills',
-  'getSkill',
-  'listEvents',
-  'createEvent',
-  'getEvent',
-  'updateEvent',
-  'deleteEvent',
-  'createEventTrigger',
-  'listEventTriggers',
-  'getEventTrigger',
-  'updateEventTrigger',
-  'deleteEventTrigger',
-  'listEventTasks',
-  'listWorkflows',
-  'createWorkflow',
-  'getWorkflow',
-  'updateWorkflow',
-  'deleteWorkflow',
-  'createWorkflowStep',
-  'listWorkflowSteps',
-  'deleteWorkflowStep',
-  'listWorkflowTasks',
-  'getWorkflowText',
-  'replaceWorkflowFromText',
-  'createEnrolmentCode',
-  'listMachines',
-  'launchAgent',
-  'stopAgent',
+  'workspace',
+  'task',
+  'memory',
+  'skills',
+  'events',
+  'workflows',
+  'machines',
+  'help',
   'pano',
 ])
+
+const actions = (...names) => Object.freeze([...names, 'help'])
+const PANO_ACTIONS = actions('save', 'read', 'comment', 'attach', 'delete')
+
+/**
+ * Each tool's actions, per surface: the enums of the Go params, which a test
+ * compares. A manifest asks for a tool bare (`"task"`, every action) or for one
+ * action (`"task.create"`), and the broker holds a call to the action it names.
+ */
+export const WORKSPACE_ACTIONS = Object.freeze({
+  task: actions('create', 'get', 'updateStatus', 'reply', 'elicit', 'getAttachment'),
+  memory: actions('load', 'save', 'delete'),
+  skills: actions('search', 'load', 'save', 'delete'),
+  workspace: actions('get', 'publishEvent'),
+  siteTools: actions('search', 'getDefinition', 'call'),
+  pano: PANO_ACTIONS,
+})
+
+export const SUPERVISOR_ACTIONS = Object.freeze({
+  workspace: actions('list', 'create', 'get', 'update', 'stats', 'fork', 'mergeFork'),
+  task: actions(
+    'list',
+    'listAll',
+    'create',
+    'get',
+    'reply',
+    'respond',
+    'updateStatus',
+    'updateSortingOrder',
+    'updateAssignee',
+    'updateAllowAll',
+    'updateSchedule',
+    'delete',
+    'getAttachment',
+  ),
+  memory: actions('list', 'get'),
+  skills: actions('search', 'get'),
+  events: actions(
+    'list',
+    'create',
+    'get',
+    'update',
+    'delete',
+    'listTasks',
+    'listTriggers',
+    'createTrigger',
+    'getTrigger',
+    'updateTrigger',
+    'deleteTrigger',
+  ),
+  workflows: actions(
+    'list',
+    'create',
+    'get',
+    'getText',
+    'update',
+    'delete',
+    'replaceFromText',
+    'listSteps',
+    'createStep',
+    'deleteStep',
+    'listTasks',
+  ),
+  machines: actions('list', 'createEnrolmentCode', 'launchAgent', 'stopAgent'),
+  pano: PANO_ACTIONS,
+})
+
+/**
+ * The tools that became actions, and the `tool.action` each became: the
+ * `legacyTools` maps in each server's `tools.go`, which a test compares.
+ *
+ * So an extension installed before the merge keeps both its manifest and its
+ * calls: a retired name is read as its action wherever it appears. The servers
+ * answer these names too, but a grant has to be checked against what a call
+ * really does, and that is the action.
+ */
+export const RETIRED_TOOLS = Object.freeze({
+  workspace: Object.freeze({
+    createTask: 'task.create',
+    getTask: 'task.get',
+    updateTaskStatus: 'task.updateStatus',
+    reply: 'task.reply',
+    elicit: 'task.elicit',
+    getAttachment: 'task.getAttachment',
+    loadMemory: 'memory.load',
+    saveMemory: 'memory.save',
+    deleteMemory: 'memory.delete',
+    searchSkills: 'skills.search',
+    loadSkill: 'skills.load',
+    saveSkill: 'skills.save',
+    deleteSkill: 'skills.delete',
+    getWorkspace: 'workspace.get',
+    publishEvent: 'workspace.publishEvent',
+    listSiteTools: 'siteTools.search',
+    getSiteToolDefinition: 'siteTools.getDefinition',
+    callSiteTool: 'siteTools.call',
+  }),
+  supervisor: Object.freeze({
+    listWorkspaces: 'workspace.list',
+    createWorkspace: 'workspace.create',
+    getWorkspace: 'workspace.get',
+    updateWorkspace: 'workspace.update',
+    getWorkspaceStats: 'workspace.stats',
+    forkWorkspace: 'workspace.fork',
+    mergeFork: 'workspace.mergeFork',
+    listTasks: 'task.list',
+    listAllTasks: 'task.listAll',
+    createTask: 'task.create',
+    getTask: 'task.get',
+    respondToTask: 'task.respond',
+    replyToTask: 'task.reply',
+    updateTaskStatus: 'task.updateStatus',
+    updateTaskOrder: 'task.updateSortingOrder',
+    updateTaskAssignee: 'task.updateAssignee',
+    updateTaskAllowAll: 'task.updateAllowAll',
+    updateScheduledTask: 'task.updateSchedule',
+    deleteTask: 'task.delete',
+    getAttachment: 'task.getAttachment',
+    listMemories: 'memory.list',
+    getMemory: 'memory.get',
+    searchSkills: 'skills.search',
+    getSkill: 'skills.get',
+    listEvents: 'events.list',
+    createEvent: 'events.create',
+    getEvent: 'events.get',
+    updateEvent: 'events.update',
+    deleteEvent: 'events.delete',
+    listEventTasks: 'events.listTasks',
+    listEventTriggers: 'events.listTriggers',
+    createEventTrigger: 'events.createTrigger',
+    getEventTrigger: 'events.getTrigger',
+    updateEventTrigger: 'events.updateTrigger',
+    deleteEventTrigger: 'events.deleteTrigger',
+    listWorkflows: 'workflows.list',
+    createWorkflow: 'workflows.create',
+    getWorkflow: 'workflows.get',
+    getWorkflowText: 'workflows.getText',
+    updateWorkflow: 'workflows.update',
+    deleteWorkflow: 'workflows.delete',
+    replaceWorkflowFromText: 'workflows.replaceFromText',
+    listWorkflowSteps: 'workflows.listSteps',
+    createWorkflowStep: 'workflows.createStep',
+    deleteWorkflowStep: 'workflows.deleteStep',
+    listWorkflowTasks: 'workflows.listTasks',
+    listMachines: 'machines.list',
+    createEnrolmentCode: 'machines.createEnrolmentCode',
+    launchAgent: 'machines.launchAgent',
+    stopAgent: 'machines.stopAgent',
+  }),
+})
+
+/** A manifest or grant entry as it is now spelled: a retired name becomes `tool.action`. */
+export function currentToolName(surface, tool) {
+  return RETIRED_TOOLS[surface]?.[tool] ?? tool
+}
+
+/**
+ * A call that names a retired tool, as the action call it now is.
+ *
+ * The old arguments are the payload, apart from the workspace reply's `chatId`,
+ * which the task tool calls `taskId`. Anything else comes back as it was.
+ */
+export function currentCall(surface, tool, args = {}) {
+  const current = RETIRED_TOOLS[surface]?.[tool]
+  if (!current) return { tool, args }
+  const [name, action] = current.split('.')
+  const { workspaceId, ...payload } = args
+  if (surface === 'workspace' && current === 'task.reply' && 'chatId' in payload) {
+    payload.taskId = payload.chatId
+    delete payload.chatId
+  }
+  return { tool: name, args: { ...(workspaceId ? { workspaceId } : {}), action, payload } }
+}
 
 /** What `checkCompatibility` takes, with the running version. */
 export function serverTools(appVersion) {
@@ -132,5 +244,7 @@ export function serverTools(appVersion) {
     appVersion,
     workspaceTools: [...WORKSPACE_TOOLS],
     supervisorTools: [...SUPERVISOR_TOOLS],
+    workspaceActions: WORKSPACE_ACTIONS,
+    supervisorActions: SUPERVISOR_ACTIONS,
   }
 }

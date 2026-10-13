@@ -64,37 +64,37 @@ function fakeSupervisor(over = {}) {
   const wrap = (payload) => ({ ok: true, result: { content: [{ text: JSON.stringify(payload) }] } })
 
   const handlers = {
-    listEvents: async () => wrap({ events: state.events }),
-    createEvent: async ({ name }) => {
+    'events.list': async () => wrap({ events: state.events }),
+    'events.create': async ({ name }) => {
       const event = { id: id('ev'), name }
       state.events.push(event)
       state.triggers[event.id] = []
       return wrap({ event })
     },
-    deleteEvent: async ({ eventId }) => {
+    'events.delete': async ({ eventId }) => {
       state.events = state.events.filter((event) => event.id !== eventId)
       return { ok: true, result: 'event deleted' }
     },
-    listEventTriggers: async ({ eventId }) => wrap({ eventTriggers: state.triggers[eventId] ?? [] }),
-    createEventTrigger: async (args) => {
+    'events.listTriggers': async ({ eventId }) => wrap({ eventTriggers: state.triggers[eventId] ?? [] }),
+    'events.createTrigger': async (args) => {
       const trigger = { id: id('tr'), ...args }
       state.triggers[args.eventId] = [...(state.triggers[args.eventId] ?? []), trigger]
       return wrap({ eventTrigger: trigger })
     },
-    updateEventTrigger: async (args) => wrap({ eventTrigger: { id: args.triggerId, ...args } }),
-    deleteEventTrigger: async ({ triggerId }) => {
+    'events.updateTrigger': async (args) => wrap({ eventTrigger: { id: args.triggerId, ...args } }),
+    'events.deleteTrigger': async ({ triggerId }) => {
       for (const [eventId, triggers] of Object.entries(state.triggers)) {
         state.triggers[eventId] = triggers.filter((trigger) => trigger.id !== triggerId)
       }
       return { ok: true, result: 'trigger deleted' }
     },
-    createTask: async (args) => {
+    'task.create': async (args) => {
       const task = { id: id('tk'), ...args }
       state.tasks[task.id] = task
       return wrap({ task })
     },
-    updateScheduledTask: async (args) => wrap({ task: { id: args.taskId, ...args } }),
-    deleteTask: async ({ taskId }) => {
+    'task.updateSchedule': async (args) => wrap({ task: { id: args.taskId, ...args } }),
+    'task.delete': async ({ taskId }) => {
       delete state.tasks[taskId]
       return { ok: true, result: 'task deleted' }
     },
@@ -102,7 +102,10 @@ function fakeSupervisor(over = {}) {
   }
 
   const calls = []
-  const supervisor = vi.fn(async (tool, args = {}) => {
+  const supervisor = vi.fn(async (name, input = {}) => {
+    // Every call is an action, recorded as `tool.action` with its payload as args.
+    const tool = `${name}.${input.action}`
+    const args = input.payload
     calls.push({ tool, args })
     const handler = handlers[tool]
     if (!handler) throw new Error(`the test's supervisor has no ${tool}`)
@@ -313,7 +316,7 @@ describe('reconcile', () => {
 
     expect(result).toMatchObject({ ok: true, created: ['nightly'], updated: [], removed: [] })
     expect(fake.calls[0]).toMatchObject({
-      tool: 'createTask',
+      tool: 'task.create',
       args: { workspaceId: 'ws1', title: 'Nightly digest', cronSchedule: '0 9 * * *', assignee: 'agent' },
     })
     expect(saved().standup.nightly).toMatchObject({ kind: KINDS.task, taskId: 'tk1' })
@@ -339,7 +342,7 @@ describe('reconcile', () => {
 
     expect(result.updated).toEqual(['nightly'])
     expect(fake.calls.at(-1)).toMatchObject({
-      tool: 'updateScheduledTask',
+      tool: 'task.updateSchedule',
       args: { taskId: 'tk1', cronSchedule: '0 10 * * *' },
     })
     // Still one task, not two.
@@ -353,7 +356,7 @@ describe('reconcile', () => {
     const result = await schedules.reconcile('standup', [])
 
     expect(result.removed).toEqual(['nightly'])
-    expect(fake.calls.at(-1)).toMatchObject({ tool: 'deleteTask', args: { taskId: 'tk1' } })
+    expect(fake.calls.at(-1)).toMatchObject({ tool: 'task.delete', args: { taskId: 'tk1' } })
     expect(saved().standup).toEqual({})
   })
 
@@ -362,7 +365,7 @@ describe('reconcile', () => {
 
     await schedules.reconcile('standup', [triggerEntry()])
 
-    expect(fake.toolsCalled()).toEqual(['listEvents', 'createEvent', 'createEventTrigger'])
+    expect(fake.toolsCalled()).toEqual(['events.list', 'events.create', 'events.createTrigger'])
     expect(saved().standup['on-deploy']).toMatchObject({
       kind: KINDS.trigger,
       eventId: 'ev1',
@@ -373,12 +376,12 @@ describe('reconcile', () => {
 
   it('reuses an event that already exists, and does not claim to have made it', async () => {
     const fake = fakeSupervisor()
-    await fake.supervisor('createEvent', { name: 'deploy_done' })
+    await fake.supervisor('events', { action: 'create', payload: { name: 'deploy_done' } })
     const { schedules, saved } = build({ supervisor: fake })
 
     await schedules.reconcile('standup', [triggerEntry()])
 
-    expect(fake.toolsCalled().filter((tool) => tool === 'createEvent')).toHaveLength(1)
+    expect(fake.toolsCalled().filter((tool) => tool === 'events.create')).toHaveLength(1)
     // The one it made itself, not the one it found.
     expect(saved().standup['on-deploy'].createdEvents).toEqual([])
   })
@@ -388,7 +391,7 @@ describe('reconcile', () => {
 
     await schedules.reconcile('standup', [triggerEntry({ emitEvent: 'notes_written' })])
 
-    const created = fake.calls.find((call) => call.tool === 'createEventTrigger')
+    const created = fake.calls.find((call) => call.tool === 'events.createTrigger')
     expect(created.args.emitEventId).toBe('ev2')
     expect(saved().standup['on-deploy'].createdEvents).toEqual(['ev1', 'ev2'])
   })
@@ -400,7 +403,7 @@ describe('reconcile', () => {
     await schedules.reconcile('standup', [triggerEntry({ title: 'Write the notes' })])
 
     expect(fake.calls.at(-1)).toMatchObject({
-      tool: 'updateEventTrigger',
+      tool: 'events.updateTrigger',
       args: { triggerId: 'tr2', title: 'Write the notes' },
     })
   })
@@ -411,7 +414,7 @@ describe('reconcile', () => {
   it('takes ownership of an event it had to recreate during an update', async () => {
     const { schedules, fake, saved } = build()
     await schedules.reconcile('standup', [triggerEntry({ emitEvent: 'notes_written' })])
-    await fake.supervisor('deleteEvent', { eventId: 'ev1' })
+    await fake.supervisor('events', { action: 'delete', payload: { eventId: 'ev1' } })
     // As though the first pass had found that event rather than made it.
     const record = await schedules.recordsFor('standup')
     expect(record['on-deploy'].createdEvents).toContain('ev1')
@@ -439,12 +442,12 @@ describe('reconcile', () => {
     const result = await schedules.reconcile('standup', [taskEntry({ kind: KINDS.trigger, event: 'deploy_done' })])
 
     expect(result.updated).toEqual(['nightly'])
-    expect(fake.toolsCalled()).toContain('deleteTask')
+    expect(fake.toolsCalled()).toContain('task.delete')
     expect(saved().standup.nightly).toMatchObject({ kind: KINDS.trigger })
   })
 
   // The bound that replaces the tool allowlist. The reconciler calls as the
-  // host — it needs `deleteTask`, which no extension would ever declare — so
+  // host — it needs the `task` action `delete`, which no extension would ever declare — so
   // the grant is checked here on the workspace a schedule names.
   it('refuses a schedule in a workspace the grant does not reach', async () => {
     const grant = { scope: SCOPE.workspace, workspaces: ['ws1'] }
@@ -461,7 +464,7 @@ describe('reconcile', () => {
 
   // The event half of the same bound, which the workspace check on the call
   // could not reach: a trigger resolves its events *before* the call that names
-  // a workspace, and `createEvent` is account-level. Refused only there, an
+  // a workspace, and `events.create` is account-level. Refused only there, an
   // extension outside its grant would still have left a named event standing on
   // the account, recorded nowhere and tidied away by nobody.
   it('creates no account-level event for a trigger the grant does not reach', async () => {
@@ -578,7 +581,7 @@ describe('reconcile', () => {
 
   it('reports what could not be created, and keeps going', async () => {
     const fake = fakeSupervisor({
-      createTask: async () => ({ ok: false, reason: 'This extension may not call "createTask".' }),
+      'task.create': async () => ({ ok: false, reason: 'This extension may not call "createTask".' }),
     })
     const { schedules, logger, saved } = build({ supervisor: fake })
 
@@ -593,7 +596,7 @@ describe('reconcile', () => {
   })
 
   it('refuses to record a create that answered with no id', async () => {
-    const fake = fakeSupervisor({ createTask: async () => ({ ok: true, result: '{"task":{}}' }) })
+    const fake = fakeSupervisor({ 'task.create': async () => ({ ok: true, result: '{"task":{}}' }) })
     const { schedules, saved } = build({ supervisor: fake })
 
     const result = await schedules.reconcile('standup', [taskEntry()])
@@ -603,7 +606,7 @@ describe('reconcile', () => {
   })
 
   it('reports a trigger create that answered with no id', async () => {
-    const fake = fakeSupervisor({ createEventTrigger: async () => ({ ok: true, result: '{}' }) })
+    const fake = fakeSupervisor({ 'events.createTrigger': async () => ({ ok: true, result: '{}' }) })
     const { schedules } = build({ supervisor: fake })
 
     const result = await schedules.reconcile('standup', [triggerEntry()])
@@ -612,7 +615,7 @@ describe('reconcile', () => {
   })
 
   it('reports an event create that answered with no id', async () => {
-    const fake = fakeSupervisor({ createEvent: async () => ({ ok: true, result: '{}' }) })
+    const fake = fakeSupervisor({ 'events.create': async () => ({ ok: true, result: '{}' }) })
     const { schedules } = build({ supervisor: fake })
 
     const result = await schedules.reconcile('standup', [triggerEntry()])
@@ -620,16 +623,16 @@ describe('reconcile', () => {
     expect(result.problems[0].reason).toMatch(/no id/)
   })
 
-  it('reports a refused listEvents rather than creating a duplicate event', async () => {
+  it('reports a refused events.list rather than creating a duplicate event', async () => {
     const fake = fakeSupervisor({
-      listEvents: async () => ({ ok: false, reason: 'This extension was not granted access to all workspaces.' }),
+      'events.list': async () => ({ ok: false, reason: 'This extension was not granted access to all workspaces.' }),
     })
     const { schedules } = build({ supervisor: fake })
 
     const result = await schedules.reconcile('standup', [triggerEntry()])
 
     expect(result.problems[0].reason).toMatch(/not granted/)
-    expect(fake.toolsCalled()).not.toContain('createEvent')
+    expect(fake.toolsCalled()).not.toContain('events.create')
   })
 
   it('sends an empty body rather than nothing when a declaration has none', async () => {
@@ -644,8 +647,8 @@ describe('reconcile', () => {
     expect(fake.calls.at(-1).args.body).toBe('')
   })
 
-  it('reports a refused createEventTrigger', async () => {
-    const fake = fakeSupervisor({ createEventTrigger: async () => ({ ok: false, reason: 'refused' }) })
+  it('reports a refused events.createTrigger', async () => {
+    const fake = fakeSupervisor({ 'events.createTrigger': async () => ({ ok: false, reason: 'refused' }) })
     const { schedules } = build({ supervisor: fake })
 
     expect((await schedules.reconcile('standup', [triggerEntry()])).problems[0].reason).toBe('refused')
@@ -654,14 +657,14 @@ describe('reconcile', () => {
   // The kind changed, so the old one has to go first — and if it will not go,
   // making the new one anyway would leave two things running.
   it('does not make the replacement when the old one could not be removed', async () => {
-    const fake = fakeSupervisor({ deleteTask: async () => ({ ok: false, reason: 'workspace not found' }) })
+    const fake = fakeSupervisor({ 'task.delete': async () => ({ ok: false, reason: 'workspace not found' }) })
     const { schedules, saved } = build({ supervisor: fake })
     await schedules.reconcile('standup', [taskEntry()])
 
     const result = await schedules.reconcile('standup', [taskEntry({ kind: KINDS.trigger, event: 'deploy_done' })])
 
     expect(result.problems[0].reason).toBe('workspace not found')
-    expect(fake.toolsCalled()).not.toContain('createEventTrigger')
+    expect(fake.toolsCalled()).not.toContain('events.createTrigger')
     // Still the task it could not remove, so the next pass tries again.
     expect(saved().standup.nightly).toMatchObject({ kind: KINDS.task })
   })
@@ -670,13 +673,13 @@ describe('reconcile', () => {
   // used as it is, and the event it names is found rather than created again.
   it('resolves an event from a listing that arrived already parsed', async () => {
     const fake = fakeSupervisor({
-      listEvents: async () => ({ ok: true, result: { events: [{ id: 'ev1', name: 'standup_done' }] } }),
+      'events.list': async () => ({ ok: true, result: { events: [{ id: 'ev1', name: 'standup_done' }] } }),
     })
     const { schedules } = build({ supervisor: fake })
 
     await schedules.reconcile('standup', [triggerEntry({ event: 'standup_done' })])
 
-    expect(fake.toolsCalled()).not.toContain('createEvent')
+    expect(fake.toolsCalled()).not.toContain('events.create')
   })
 
   // The trigger's own event was found, and only the chained one was refused —
@@ -685,8 +688,8 @@ describe('reconcile', () => {
   it('reports a refused chained event when the trigger event itself resolved', async () => {
     let events = []
     const fake = fakeSupervisor({
-      listEvents: async () => ({ ok: true, result: JSON.stringify({ events }) }),
-      createEvent: async ({ name }) => {
+      'events.list': async () => ({ ok: true, result: JSON.stringify({ events }) }),
+      'events.create': async ({ name }) => {
         if (name === 'notes_written') return { ok: false, reason: 'refused' }
         events = [{ id: 'ev1', name }]
         return { ok: true, result: `{"event":{"id":"ev1","name":"${name}"}}` }
@@ -704,7 +707,7 @@ describe('reconcile', () => {
   // all, and reading one must not be how the reconciler falls over.
   it('reads a record from an older version that has no createdEvents', async () => {
     const fake = fakeSupervisor()
-    await fake.supervisor('createEvent', { name: 'deploy_done' })
+    await fake.supervisor('events', { action: 'create', payload: { name: 'deploy_done' } })
     const { schedules, saved } = build({
       supervisor: fake,
       records: { standup: { 'on-deploy': { kind: KINDS.trigger, workspaceId: 'ws1', eventId: 'ev1', triggerId: 'tr2', fingerprint: 'old' } } },
@@ -727,11 +730,11 @@ describe('reconcile', () => {
     const result = await schedules.reconcile('standup', [])
 
     expect(result.removed).toEqual(['on-deploy'])
-    expect(fake.toolsCalled()).toEqual(['deleteEventTrigger'])
+    expect(fake.toolsCalled()).toEqual(['events.deleteTrigger'])
   })
 
-  it('reports a refused createEvent', async () => {
-    const fake = fakeSupervisor({ createEvent: async () => ({ ok: false, reason: 'refused' }) })
+  it('reports a refused events.create', async () => {
+    const fake = fakeSupervisor({ 'events.create': async () => ({ ok: false, reason: 'refused' }) })
     const { schedules } = build({ supervisor: fake })
 
     expect((await schedules.reconcile('standup', [triggerEntry()])).problems[0].reason).toBe('refused')
@@ -740,7 +743,7 @@ describe('reconcile', () => {
   it('reports a refused chained event', async () => {
     let calls = 0
     const fake = fakeSupervisor({
-      createEvent: async ({ name }) => {
+      'events.create': async ({ name }) => {
         calls += 1
         return calls === 1
           ? { ok: true, result: `{"event":{"id":"ev1","name":"${name}"}}` }
@@ -754,8 +757,8 @@ describe('reconcile', () => {
     expect(result.problems[0].reason).toBe('refused')
   })
 
-  it('survives a listEvents answer that is not JSON', async () => {
-    const fake = fakeSupervisor({ listEvents: async () => ({ ok: true, result: 'not json' }) })
+  it('survives an events.list answer that is not JSON', async () => {
+    const fake = fakeSupervisor({ 'events.list': async () => ({ ok: true, result: 'not json' }) })
     const { schedules, saved } = build({ supervisor: fake })
 
     await schedules.reconcile('standup', [triggerEntry()])
@@ -767,19 +770,19 @@ describe('reconcile', () => {
   // A record pointing at something the user deleted by hand would otherwise be
   // permanently broken, with no way back short of a reinstall.
   it('makes the task again when the update finds nothing to revise', async () => {
-    const fake = fakeSupervisor({ updateScheduledTask: async () => ({ ok: false, reason: 'task not found' }) })
+    const fake = fakeSupervisor({ 'task.updateSchedule': async () => ({ ok: false, reason: 'task not found' }) })
     const { schedules, saved } = build({ supervisor: fake })
     await schedules.reconcile('standup', [taskEntry()])
 
     const result = await schedules.reconcile('standup', [taskEntry({ cron: '0 10 * * *' })])
 
     expect(result.updated).toEqual(['nightly'])
-    expect(fake.toolsCalled().filter((tool) => tool === 'createTask')).toHaveLength(2)
+    expect(fake.toolsCalled().filter((tool) => tool === 'task.create')).toHaveLength(2)
     expect(saved().standup.nightly.taskId).toBe('tk2')
   })
 
   it('makes the trigger again when the update finds nothing to revise', async () => {
-    const fake = fakeSupervisor({ updateEventTrigger: async () => ({ ok: false, reason: 'trigger not found' }) })
+    const fake = fakeSupervisor({ 'events.updateTrigger': async () => ({ ok: false, reason: 'trigger not found' }) })
     const { schedules, saved } = build({ supervisor: fake })
     await schedules.reconcile('standup', [triggerEntry()])
 
@@ -792,7 +795,7 @@ describe('reconcile', () => {
   it('reports a refused event lookup during an update', async () => {
     let calls = 0
     const fake = fakeSupervisor({
-      listEvents: async () => {
+      'events.list': async () => {
         calls += 1
         return calls === 1 ? { ok: true, result: '{"events":[]}' } : { ok: false, reason: 'refused' }
       },
@@ -808,7 +811,7 @@ describe('reconcile', () => {
   it('reports a refused chained event during an update', async () => {
     let creates = 0
     const fake = fakeSupervisor({
-      createEvent: async ({ name }) => {
+      'events.create': async ({ name }) => {
         creates += 1
         return creates <= 1
           ? { ok: true, result: `{"event":{"id":"ev1","name":"${name}"}}` }
@@ -824,7 +827,7 @@ describe('reconcile', () => {
   })
 
   it('reports a removal that failed, and keeps the record so it is tried again', async () => {
-    const fake = fakeSupervisor({ deleteTask: async () => ({ ok: false, reason: 'task not found' }) })
+    const fake = fakeSupervisor({ 'task.delete': async () => ({ ok: false, reason: 'task not found' }) })
     const { schedules, saved, logger } = build({ supervisor: fake })
     await schedules.reconcile('standup', [taskEntry()])
 
@@ -837,14 +840,14 @@ describe('reconcile', () => {
   })
 
   it('reports a failed trigger delete without touching its events', async () => {
-    const fake = fakeSupervisor({ deleteEventTrigger: async () => ({ ok: false, reason: 'refused' }) })
+    const fake = fakeSupervisor({ 'events.deleteTrigger': async () => ({ ok: false, reason: 'refused' }) })
     const { schedules } = build({ supervisor: fake })
     await schedules.reconcile('standup', [triggerEntry()])
 
     const result = await schedules.reconcile('standup', [])
 
     expect(result.problems[0].reason).toBe('refused')
-    expect(fake.toolsCalled()).not.toContain('deleteEvent')
+    expect(fake.toolsCalled()).not.toContain('events.delete')
   })
 
   it('starts from nothing when the record file cannot be read', async () => {
@@ -915,8 +918,8 @@ describe('removeOwner', () => {
 
     expect(result.ok).toBe(true)
     expect(result.removed.sort()).toEqual(['nightly', 'on-deploy'])
-    expect(fake.toolsCalled()).toContain('deleteTask')
-    expect(fake.toolsCalled()).toContain('deleteEventTrigger')
+    expect(fake.toolsCalled()).toContain('task.delete')
+    expect(fake.toolsCalled()).toContain('events.deleteTrigger')
     // The extension is gone from the record entirely, not left as an empty map.
     expect(saved().standup).toBeUndefined()
   })
@@ -927,11 +930,11 @@ describe('removeOwner', () => {
     const { schedules } = build({ supervisor: fake })
     await schedules.reconcile('standup', [triggerEntry()])
     // A second trigger on the same event, from somewhere else.
-    await fake.supervisor('createEventTrigger', { eventId: 'ev1', title: 'somebody else' })
+    await fake.supervisor('events', { action: 'createTrigger', payload: { eventId: 'ev1', title: 'somebody else' } })
 
     await schedules.removeOwner('standup')
 
-    expect(fake.toolsCalled()).not.toContain('deleteEvent')
+    expect(fake.toolsCalled()).not.toContain('events.delete')
   })
 
   it('deletes an event it created when it is the last one out', async () => {
@@ -940,56 +943,56 @@ describe('removeOwner', () => {
 
     await schedules.removeOwner('standup')
 
-    expect(fake.calls.at(-1)).toMatchObject({ tool: 'deleteEvent', args: { eventId: 'ev1' } })
+    expect(fake.calls.at(-1)).toMatchObject({ tool: 'events.delete', args: { eventId: 'ev1' } })
   })
 
   it('reads an answer that names no triggers at all as an unused event', async () => {
-    const fake = fakeSupervisor({ listEventTriggers: async () => ({ ok: true, result: '{}' }) })
+    const fake = fakeSupervisor({ 'events.listTriggers': async () => ({ ok: true, result: '{}' }) })
     const { schedules } = build({ supervisor: fake })
     await schedules.reconcile('standup', [triggerEntry()])
 
     await schedules.removeOwner('standup')
 
-    expect(fake.toolsCalled()).toContain('deleteEvent')
+    expect(fake.toolsCalled()).toContain('events.delete')
   })
 
   // Not every answer arrives as text to be parsed. A server that hands back
   // the structure itself is already saying what the JSON would have said, and
   // re-parsing an object is not a step this should need.
   it('reads a trigger list that arrived already parsed', async () => {
-    const fake = fakeSupervisor({ listEventTriggers: async () => ({ ok: true, result: { eventTriggers: [] } }) })
+    const fake = fakeSupervisor({ 'events.listTriggers': async () => ({ ok: true, result: { eventTriggers: [] } }) })
     const { schedules } = build({ supervisor: fake })
     await schedules.reconcile('standup', [triggerEntry()])
 
     await schedules.removeOwner('standup')
 
-    expect(fake.toolsCalled()).toContain('deleteEvent')
+    expect(fake.toolsCalled()).toContain('events.delete')
   })
 
   it('leaves an event alone when it cannot tell whether anything still uses it', async () => {
-    const fake = fakeSupervisor({ listEventTriggers: async () => ({ ok: false, reason: 'refused' }) })
+    const fake = fakeSupervisor({ 'events.listTriggers': async () => ({ ok: false, reason: 'refused' }) })
     const { schedules } = build({ supervisor: fake })
     await schedules.reconcile('standup', [triggerEntry()])
 
     await schedules.removeOwner('standup')
 
-    expect(fake.toolsCalled()).not.toContain('deleteEvent')
+    expect(fake.toolsCalled()).not.toContain('events.delete')
   })
 
   it('leaves an event alone when the list of triggers is unreadable', async () => {
-    const fake = fakeSupervisor({ listEventTriggers: async () => ({ ok: true, result: 'not json' }) })
+    const fake = fakeSupervisor({ 'events.listTriggers': async () => ({ ok: true, result: 'not json' }) })
     const { schedules } = build({ supervisor: fake })
     await schedules.reconcile('standup', [triggerEntry()])
 
     await schedules.removeOwner('standup')
 
-    expect(fake.toolsCalled()).not.toContain('deleteEvent')
+    expect(fake.toolsCalled()).not.toContain('events.delete')
   })
 
   // The worst outcome available is a cron task still firing that nothing
   // remembers creating, so a failed removal keeps its record.
   it('keeps the record of what it could not remove, and says so', async () => {
-    const fake = fakeSupervisor({ deleteTask: async () => ({ ok: false, reason: 'workspace not found' }) })
+    const fake = fakeSupervisor({ 'task.delete': async () => ({ ok: false, reason: 'workspace not found' }) })
     const { schedules, saved, logger } = build({ supervisor: fake })
     await schedules.reconcile('standup', [taskEntry()])
 

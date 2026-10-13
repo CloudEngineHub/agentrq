@@ -45,13 +45,16 @@ function fakeSupervisor(over = {}) {
   const calls = []
   const wrap = (payload) => ({ ok: true, result: { content: [{ text: JSON.stringify(payload) }] } })
   const answers = {
-    listWorkspaces: () => wrap({ workspaces }),
-    listAllTasks: () => wrap({ tasks }),
+    'workspace.list': () => wrap({ workspaces }),
+    'task.listAll': () => wrap({ tasks }),
     ...over,
   }
   return {
     calls,
-    supervisor: async (tool, args) => {
+    // Every call is an action, recorded as `tool.action` with its payload as args.
+    supervisor: async (name, input) => {
+      const tool = `${name}.${input.action}`
+      const args = input.payload
       calls.push({ tool, args })
       return answers[tool](args)
     },
@@ -72,7 +75,7 @@ describe('the manifest', () => {
   it('asks for the account, a secret, and names a host', () => {
     const { manifest: parsed } = parseManifest(manifest)
 
-    expect(parsed.mcp.supervisor).toEqual(['listWorkspaces', 'listAllTasks', 'createTask'])
+    expect(parsed.mcp.supervisor).toEqual(['workspace.list', 'task.listAll', 'task.create'])
     expect(parsed.net).toEqual(['hooks.slack.com'])
     expect(parsed.config.find((field) => field.key === 'webhookToken').type).toBe('secret')
   })
@@ -102,13 +105,13 @@ describe('the grant ladder at its top rung', () => {
   })
 
   // "Supervisor, but only this workspace" is the same grant with a misleading
-  // label: listAllTasks spans the platform whatever list sits beside it.
+  // label: task.listAll spans the platform whatever list sits beside it.
   it('carries no workspace list at the supervisor rung', () => {
     const grant = toGrant(ask(), { scope: SCOPE.supervisor, workspaces: ['ws1'], workspaceId: 'ws1' })
 
     expect(grant.workspaces).toEqual([])
     expect(grant.includesFutureWorkspaces).toBe(true)
-    expect(grant.tools.supervisor).toEqual(['listWorkspaces', 'listAllTasks', 'createTask'])
+    expect(grant.tools.supervisor).toEqual(['workspace.list', 'task.listAll', 'task.create'])
   })
 
   it('is a coherent choice at every rung it offers, wherever it is offered from', () => {
@@ -190,23 +193,23 @@ describe('collect', () => {
 
     const summary = await collect(ctxWith(fake))
 
-    expect(fake.calls.map((call) => call.tool)).toEqual(['listWorkspaces', 'listAllTasks'])
+    expect(fake.calls.map((call) => call.tool)).toEqual(['workspace.list', 'task.listAll'])
     expect(fake.calls[1].args.limit).toBe(MAX_TASKS)
     expect(summary[0].workspace).toBe('Backend')
   })
 
   it('carries a refusal back rather than throwing', async () => {
     const refused = fakeSupervisor({
-      listWorkspaces: () => ({ ok: false, reason: 'This extension was not granted access to all workspaces.' }),
+      'workspace.list': () => ({ ok: false, reason: 'This extension was not granted access to all workspaces.' }),
     })
     expect((await collect(ctxWith(refused))).refused).toContain('not granted')
 
-    const halfway = fakeSupervisor({ listAllTasks: () => ({ ok: false, reason: 'refused' }) })
+    const halfway = fakeSupervisor({ 'task.listAll': () => ({ ok: false, reason: 'refused' }) })
     expect((await collect(ctxWith(halfway))).refused).toBe('refused')
   })
 
   it('holds up when an answer cannot be read', async () => {
-    const fake = fakeSupervisor({ listWorkspaces: () => ({ ok: true, result: 'not json' }) })
+    const fake = fakeSupervisor({ 'workspace.list': () => ({ ok: true, result: 'not json' }) })
     expect(await collect(ctxWith(fake))).toEqual(summarise([], tasks))
   })
 })
@@ -218,7 +221,7 @@ describe('view', () => {
   })
 
   it('draws the refusal, in the same shape', async () => {
-    const fake = fakeSupervisor({ listWorkspaces: () => ({ ok: false, reason: 'refused' }) })
+    const fake = fakeSupervisor({ 'workspace.list': () => ({ ok: false, reason: 'refused' }) })
 
     const page = await view(ctxWith(fake))
 

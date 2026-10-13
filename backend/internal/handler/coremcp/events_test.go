@@ -584,11 +584,7 @@ func TestEventToolsAreRegistered(t *testing.T) {
 		registered[tool.Name] = tool.Description
 	}
 
-	want := []string{
-		"listEvents", "createEvent", "getEvent", "updateEvent", "deleteEvent",
-		"createEventTrigger", "listEventTriggers", "getEventTrigger",
-		"updateEventTrigger", "deleteEventTrigger", "listEventTasks",
-	}
+	want := []string{"events"}
 	for _, name := range want {
 		description, ok := registered[name]
 		if !ok {
@@ -603,7 +599,7 @@ func TestEventToolsAreRegistered(t *testing.T) {
 	}
 
 	// The tools an agent already had are untouched.
-	if _, ok := registered["createTask"]; !ok {
-		t.Error("createTask went missing")
+	if _, ok := registered["task"]; !ok {
+		t.Error("task went missing")
 	}
 }

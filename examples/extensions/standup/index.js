@@ -21,12 +21,11 @@
  * `checkCompatibility` would have refused the install with "the workspace server
  * does not offer listTasks", but only once a real tool list was in front of it.
  * So the first rule of writing one of these: **read the server's actual tool
- * list before you write the manifest.** For the workspace server that is
- * `createTask`, `updateTaskStatus`, `reply`, `downloadAttachment`,
- * `getWorkspace`, `getTask`, `publishEvent`, `loadMemory`, `saveMemory`,
- * `deleteMemory` and `elicit` — no more.
+ * list before you write the manifest.** For the workspace server's tasks that
+ * is one tool, `task`, whose actions are `create`, `get`, `updateStatus`,
+ * `reply`, `elicit` and `getAttachment` — no listing among them.
  *
- * What that constraint produced is a better extension. `getWorkspace` already
+ * What that constraint produced is a better extension. `workspace.get` already
  * answers with counts per status, which is what a standup is actually for; the
  * per-task detail belongs on the task, where the person asking has one in front
  * of them.
@@ -87,7 +86,7 @@ export function memoryName(config) {
 }
 
 /**
- * Reads `getWorkspace`'s answer.
+ * Reads `workspace.get`'s answer.
  *
  * The shape is fixed by the server and looks like:
  *
@@ -119,7 +118,7 @@ export function readWorkspace(text) {
 }
 
 /**
- * Reads the conversation out of `getTask`'s answer.
+ * Reads the conversation out of `task.get`'s answer.
  *
  * The text carries a `Conversation:` section holding JSON, and `total` in it is
  * the real length of the thread — not the number of messages returned, which is
@@ -236,7 +235,7 @@ export async function collect(ctx, { workspaceId } = {}) {
     }
   }
 
-  const workspace = await ctx.mcp.workspace('getWorkspace', { workspaceId })
+  const workspace = await ctx.mcp.workspace('workspace', { workspaceId, action: 'get' })
   if (!workspace.ok) {
     // The reason the host gave, shown as it came. An author debugging a refused
     // grant needs the sentence that explains it, not a generic failure.
@@ -244,7 +243,7 @@ export async function collect(ctx, { workspaceId } = {}) {
   }
 
   const name = memoryName(ctx.config)
-  const memory = await ctx.mcp.workspace('loadMemory', { workspaceId, name })
+  const memory = await ctx.mcp.workspace('memory', { workspaceId, action: 'load', payload: { name } })
   // A memory that was never written answers with a sentence rather than an
   // error, so a refusal is the only thing worth treating as missing.
   const text = memory.ok ? textOf(memory.result) : ''
@@ -260,7 +259,7 @@ export async function collect(ctx, { workspaceId } = {}) {
  *
  * This is the half `task-stats` cannot do. The board's task list carries only
  * the last message per task, so an extension with no permissions can never
- * count a thread — and one that asks for `getTask`, as this does at install,
+ * count a thread — and one that asks for `task.get`, as this does at install,
  * can.
  */
 export async function thread(ctx, task) {
@@ -268,11 +267,10 @@ export async function thread(ctx, task) {
   // keeps it out of the arguments, because the per-workspace server's tools take
   // no such parameter and refuse one.
   const ask = (over) =>
-    ctx.mcp.workspace('getTask', {
+    ctx.mcp.workspace('task', {
       workspaceId: task?.workspaceId,
-      taskId: task?.id,
-      includeConversation: true,
-      ...over,
+      action: 'get',
+      payload: { taskId: task?.id, includeConversation: true, ...over },
     })
 
   // The first call is for `total`, which is the thread's real length whatever

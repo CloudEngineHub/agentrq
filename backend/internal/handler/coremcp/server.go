@@ -171,14 +171,14 @@ func (s *WorkspaceServer) mcpURL(workspaceID int64) string {
 // ── Params Structs ────────────────────────────────────────────────────────────
 
 type ListWorkspacesParams struct {
-	IncludeArchived bool `json:"includeArchived" jsonschema:"Include archived workspaces"`
+	IncludeArchived bool `json:"includeArchived,omitempty" jsonschema:"Include archived workspaces"`
 }
 
 type CreateWorkspaceParams struct {
-	Name                 string         `json:"name"`
-	Description          *string        `json:"description,omitempty"`
-	NotificationSettings map[string]any `json:"notificationSettings,omitempty"`
-	SelfLearningLoopNote *string        `json:"selfLearningLoopNote,omitempty"`
+	Name                 string         `json:"name" jsonschema:"The workspace's name, in kebab-case, at most 128 characters."`
+	Description          *string        `json:"description,omitempty" jsonschema:"Its mission: what its agent is for."`
+	NotificationSettings map[string]any `json:"notificationSettings,omitempty" jsonschema:"Its notification settings, as the web app stores them."`
+	SelfLearningLoopNote *string        `json:"selfLearningLoopNote,omitempty" jsonschema:"A note its agent is asked to keep, about what it learned."`
 }
 
 type ForkWorkspaceParams struct {
@@ -196,99 +196,99 @@ type GetWorkspaceParams struct {
 }
 
 type UpdateWorkspaceParams struct {
-	ID                   string         `json:"id"`
-	Name                 *string        `json:"name,omitempty"`
-	Description          *string        `json:"description,omitempty"`
-	NotificationSettings map[string]any `json:"notificationSettings,omitempty"`
-	SelfLearningLoopNote *string        `json:"selfLearningLoopNote,omitempty"`
+	ID                   string         `json:"id" jsonschema:"Workspace ID (base62)."`
+	Name                 *string        `json:"name,omitempty" jsonschema:"A new name, in kebab-case."`
+	Description          *string        `json:"description,omitempty" jsonschema:"A new mission."`
+	NotificationSettings map[string]any `json:"notificationSettings,omitempty" jsonschema:"New notification settings, as the web app stores them."`
+	SelfLearningLoopNote *string        `json:"selfLearningLoopNote,omitempty" jsonschema:"A new self-learning note."`
 }
 
 type GetWorkspaceStatsParams struct {
-	ID    string `json:"id"`
+	ID    string `json:"id" jsonschema:"Workspace ID (base62)."`
 	Range string `json:"range" jsonschema:"Time range strictly in format '7d' or '30d'"`
 	From  int64  `json:"from,omitempty" jsonschema:"Unix timestamp"`
 	To    int64  `json:"to,omitempty" jsonschema:"Unix timestamp"`
 }
 
 type ListTasksParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	Filter      string `json:"filter,omitempty"`
-	Status      string `json:"status,omitempty"`
-	CreatedBy   string `json:"createdBy,omitempty"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	Filter      string `json:"filter,omitempty" jsonschema:"Only tasks whose title or body contains it."`
+	Status      string `json:"status,omitempty" jsonschema:"Only tasks with this status."`
+	CreatedBy   string `json:"createdBy,omitempty" jsonschema:"Only tasks created by 'human' or 'agent'."`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Maximum number of tasks to return, default 5, capped at 50"`
 	Offset      int    `json:"offset,omitempty" jsonschema:"Number of tasks to skip"`
 }
 
 type ListAllTasksParams struct {
-	Filter    string `json:"filter,omitempty"`
-	Status    string `json:"status,omitempty"`
-	CreatedBy string `json:"createdBy,omitempty"`
+	Filter    string `json:"filter,omitempty" jsonschema:"Only tasks whose title or body contains it."`
+	Status    string `json:"status,omitempty" jsonschema:"Only tasks with this status."`
+	CreatedBy string `json:"createdBy,omitempty" jsonschema:"Only tasks created by 'human' or 'agent'."`
 	Limit     int    `json:"limit,omitempty" jsonschema:"Maximum number of tasks to return, default 5, capped at 50"`
 	Offset    int    `json:"offset,omitempty" jsonschema:"Number of tasks to skip"`
 }
 
 type CreateTaskParams struct {
-	WorkspaceID  string `json:"workspaceId"`
-	Title        string `json:"title"`
-	Body         string `json:"body,omitempty"`
+	WorkspaceID  string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	Title        string `json:"title" jsonschema:"The task's title."`
+	Body         string `json:"body,omitempty" jsonschema:"The task's body: what is to be done."`
 	Assignee     string `json:"assignee,omitempty" jsonschema:"enum: human, agent"`
-	CronSchedule string `json:"cronSchedule,omitempty"`
-	ParentID     string `json:"parentId,omitempty"`
+	CronSchedule string `json:"cronSchedule,omitempty" jsonschema:"A 5-field cron schedule (minute hour dom month dow) to run the task on. A recurring task is at most hourly: a single minute 0-59, e.g. '30 * * * *'. A one-time task fixes dom and month, e.g. '30 14 25 4 *'."`
+	ParentID     string `json:"parentId,omitempty" jsonschema:"The task this one belongs under (base62)."`
 	ClearContext bool   `json:"clearContext,omitempty" jsonschema:"Ask for a clean slate: /clear is sent to the agent's terminal before this task is handed over, so it starts without the previous task's context. Ignored when the target workspace has no running Claude Code session. Defaults to the target workspace's own setting."`
 }
 
 type GetTaskParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	TaskID      string `json:"taskId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string `json:"taskId" jsonschema:"The task's ID (base62)."`
 }
 
 type RespondToTaskParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	TaskID      string `json:"taskId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string `json:"taskId" jsonschema:"The task's ID (base62)."`
 	// Must match crud.ValidTaskResponseActions. `reject`, not `deny`.
 	Action string `json:"action" jsonschema:"enum: allow, allow_all, reject, text"`
-	Text   string `json:"text,omitempty"`
+	Text   string `json:"text,omitempty" jsonschema:"With action text, the reply to post."`
 }
 
 type ReplyToTaskParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	TaskID      string `json:"taskId"`
-	Text        string `json:"text"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string `json:"taskId" jsonschema:"The task's ID (base62)."`
+	Text        string `json:"text" jsonschema:"The message's text."`
 }
 
 type UpdateTaskStatusParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	TaskID      string `json:"taskId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string `json:"taskId" jsonschema:"The task's ID (base62)."`
 	// Must match crud.ValidTaskStatuses — a struct tag cannot be built from that
 	// slice, so a test compares them instead.
 	Status string `json:"status" jsonschema:"enum: notstarted, ongoing, blocked, completed, rejected, cron"`
 }
 
 type UpdateTaskOrderParams struct {
-	WorkspaceID string  `json:"workspaceId"`
-	TaskID      string  `json:"taskId"`
-	SortOrder   float64 `json:"sortOrder"`
+	WorkspaceID string  `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string  `json:"taskId" jsonschema:"The task's ID (base62)."`
+	SortOrder   float64 `json:"sortOrder" jsonschema:"The task's new sort order: tasks are listed in ascending order."`
 }
 
 type UpdateTaskAssigneeParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	TaskID      string `json:"taskId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string `json:"taskId" jsonschema:"The task's ID (base62)."`
 	Assignee    string `json:"assignee" jsonschema:"enum: agent, human"`
 }
 
 type UpdateTaskAllowAllParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	TaskID      string `json:"taskId"`
-	AllowAll    bool   `json:"allowAll"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string `json:"taskId" jsonschema:"The task's ID (base62)."`
+	AllowAll    bool   `json:"allowAll" jsonschema:"Whether the task's agent may run every command without asking."`
 }
 
 type UpdateScheduledTaskParams struct {
-	WorkspaceID  string `json:"workspaceId"`
-	TaskID       string `json:"taskId"`
-	Title        string `json:"title,omitempty"`
-	Body         string `json:"body,omitempty"`
-	CronSchedule string `json:"cronSchedule,omitempty"`
-	IsOneTime    bool   `json:"isOneTime,omitempty"`
+	WorkspaceID  string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID       string `json:"taskId" jsonschema:"The task's ID (base62)."`
+	Title        string `json:"title,omitempty" jsonschema:"The task's new title."`
+	Body         string `json:"body,omitempty" jsonschema:"The task's new body."`
+	CronSchedule string `json:"cronSchedule,omitempty" jsonschema:"The task's new 5-field cron schedule."`
+	IsOneTime    bool   `json:"isOneTime,omitempty" jsonschema:"Ignored: the schedule says whether it is one-time."`
 }
 
 // DeleteTaskParams removes a task outright, attachments and messages with it.
@@ -299,71 +299,54 @@ type UpdateScheduledTaskParams struct {
 // able to leave nothing behind; without this it could only abandon the schedule
 // and hope somebody noticed.
 type DeleteTaskParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	TaskID      string `json:"taskId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID      string `json:"taskId" jsonschema:"The task's ID (base62)."`
 }
 
 type GetAttachmentParams struct {
-	WorkspaceID  string `json:"workspaceId"`
-	TaskID       string `json:"taskId"`
-	AttachmentID string `json:"attachmentId"`
+	WorkspaceID  string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	TaskID       string `json:"taskId" jsonschema:"The task's ID (base62)."`
+	AttachmentID string `json:"attachmentId" jsonschema:"The attachment's ID."`
 	Format       string `json:"format,omitempty" jsonschema:"'url' (default) returns the attachment's public link when it has one, and its base64 content as data when it does not. 'base64' always returns the content."`
 }
 
 type ListMemoriesParams struct {
-	WorkspaceID string `json:"workspaceId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
 }
 
 type GetMemoryParams struct {
-	WorkspaceID string `json:"workspaceId"`
-	Name        string `json:"name" jsonschema:"The memory's name, as listMemories reports it."`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace's ID (base62)."`
+	Name        string `json:"name" jsonschema:"The memory's name, as memory action list reports it."`
 }
 
 type SearchSkillsParams struct {
-	WorkspaceID string `json:"workspaceId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace whose view of the skills to search (base62)."`
 	Q           string `json:"q,omitempty" jsonschema:"Text to find in a skill's name or description, ignoring case; at least 3 characters. Leave it out to list every skill."`
 	Limit       int    `json:"limit,omitempty" jsonschema:"How many skills to return, at most 100. Leave it out to return every match."`
 	Offset      int    `json:"offset,omitempty" jsonschema:"How many matches to skip, for the next page."`
 }
 
 type GetSkillParams struct {
-	WorkspaceID string `json:"workspaceId"`
+	WorkspaceID string `json:"workspaceId" jsonschema:"The workspace whose skill to read (base62)."`
 	URI         string `json:"uri" jsonschema:"The file to read, as skill://<name>/<path>. skill://<name> alone reads its SKILL.md."`
 }
 
 // ── Tool Definitions ──────────────────────────────────────────────────────────
 
 func (s *WorkspaceServer) registerTools() {
-	mcp.AddTool(s.server, &mcp.Tool{Name: "listWorkspaces", Description: "List all workspaces for the authenticated user", Annotations: mcphint.Read("List workspaces")}, s.handleListWorkspaces)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "createWorkspace", Description: "Create a new workspace", Annotations: mcphint.Write("Create a workspace")}, s.handleCreateWorkspace)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "forkWorkspace", Description: "Fork a workspace: a workspace of its own, with its own queue and agent, that shares the parent's settings, memory and skills and is merged back when its tasks are done. Move tasks into it to have a second agent work on them. A fork, the supervisor workspace and an archived workspace cannot be forked", Annotations: mcphint.Write("Fork a workspace")}, s.handleForkWorkspace)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "mergeFork", Description: "Merge a fork back into its parent: the fork's agent is stopped, every task moves to the parent with its thread, and the fork is removed. Its folder on the machine is left unless deleteFolder is true. Refused while any task in the fork is not completed or rejected", Annotations: mcphint.Write("Merge a fork back")}, s.handleMergeFork)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "getWorkspace", Description: "Get a workspace by ID", Annotations: mcphint.Read("Get a workspace")}, s.handleGetWorkspace)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "updateWorkspace", Description: "Update a workspace", Annotations: mcphint.Update("Update a workspace")}, s.handleUpdateWorkspace)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "getWorkspaceStats", Description: "Get statistics for a workspace", Annotations: mcphint.Read("Workspace statistics")}, s.handleGetWorkspaceStats)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "listTasks", Description: "List tasks in a specific workspace", Annotations: mcphint.Read("List a workspace's tasks")}, s.handleListTasks)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "listAllTasks", Description: "List all tasks across all workspaces", Annotations: mcphint.Read("List every task")}, s.handleListAllTasks)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "createTask", Description: "Create a new task in a workspace", Annotations: mcphint.Write("Create a task")}, s.handleCreateTask)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "getTask", Description: "Get a specific task by ID", Annotations: mcphint.Read("Get a task")}, s.handleGetTask)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "respondToTask", Description: "Answer a permission request a task is waiting on: allow, allow_all, reject, or text to reply without deciding", Annotations: mcphint.Write("Answer a permission request")}, s.handleRespondToTask)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "replyToTask", Description: "Post a message to a task thread", Annotations: mcphint.Write("Reply in a task thread")}, s.handleReplyToTask)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "updateTaskStatus", Description: "Update a task's status", Annotations: mcphint.Update("Update a task's status")}, s.handleUpdateTaskStatus)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "updateTaskOrder", Description: "Update a task's sort order", Annotations: mcphint.Update("Reorder a task")}, s.handleUpdateTaskOrder)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "updateTaskAssignee", Description: "Update a task's assignee", Annotations: mcphint.Update("Reassign a task")}, s.handleUpdateTaskAssignee)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "updateTaskAllowAll", Description: "Toggle allow_all_commands for a task", Annotations: mcphint.Update("Set allow-all-commands")}, s.handleUpdateTaskAllowAll)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "updateScheduledTask", Description: "Update a scheduled/cron task", Annotations: mcphint.Update("Update a scheduled task")}, s.handleUpdateScheduledTask)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "deleteTask", Description: "Delete a task, with its messages and attachments. This cannot be undone; to stop a scheduled task without losing its history, set its status to rejected instead", Annotations: mcphint.Overwrite("Delete a task")}, s.handleDeleteTask)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "getAttachment", Description: "Get an attachment of a task: its public link, or its content as base64, and metadata", Annotations: mcphint.Read("Get an attachment")}, s.handleGetAttachment)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "listMemories", Description: "List a workspace's memories: name, size and when each was last changed. Content is not included — get one by name for that.", Annotations: mcphint.Read("List a workspace's memories")}, s.handleListMemories)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "getMemory", Description: "Get one of a workspace's memories in full, by name. MEMORY.md is the index the others hang off.", Annotations: mcphint.Read("Get a memory")}, s.handleGetMemory)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "searchSkills", Description: "Find the account's skills, as a workspace sees them: name, description, source and size, plus the total number of matches. With q (at least 3 characters) only skills whose name or description contains it are returned; limit and offset page through the matches. enabled false means turned off for every workspace; workspaceEnabled false means not on in that workspace. That workspace's agent sees only skills with both on. Content is not included — get a file with getSkill.", Annotations: mcphint.Read("Search a workspace's skills")}, s.handleSearchSkills)
-	mcp.AddTool(s.server, &mcp.Tool{Name: "getSkill", Description: "Get one file of a workspace's skill in full, by its skill://<name>/<path> URI; skill://<name> alone gets its SKILL.md, together with the list of the skill's other files.", Annotations: mcphint.Read("Get a skill file")}, s.handleGetSkill)
-
-	// Events and their triggers — see events.go.
-	s.registerEventTools()
-	s.registerWorkflowTools()
-	s.registerMachineTools()
+	// Every tool takes an action and its payload — see tools.go and task.go.
+	// The annotation is the most a tool's actions can do, so a tool with a
+	// delete is destructive even for its reads.
+	mcp.AddTool(s.server, &mcp.Tool{Name: "workspace", Description: workspaceToolDescription, Annotations: mcphint.Overwrite("Manage workspaces")}, s.handleWorkspaceTool)
+	mcp.AddTool(s.server, &mcp.Tool{Name: "task", Description: taskToolDescription, Annotations: mcphint.Overwrite("Manage tasks")}, s.handleTask)
+	mcp.AddTool(s.server, &mcp.Tool{Name: "memory", Description: memoryToolDescription, Annotations: mcphint.Read("Read a workspace's memory")}, s.handleMemoryTool)
+	mcp.AddTool(s.server, &mcp.Tool{Name: "skills", Description: skillsToolDescription, Annotations: mcphint.Read("Read a workspace's skills")}, s.handleSkillsTool)
+	mcp.AddTool(s.server, &mcp.Tool{Name: "events", Description: eventsToolDescription, Annotations: mcphint.Overwrite("Manage events and triggers")}, s.handleEventsTool)
+	mcp.AddTool(s.server, &mcp.Tool{Name: "workflows", Description: workflowsToolDescription, Annotations: mcphint.Overwrite("Manage workflows")}, s.handleWorkflowsTool)
+	mcp.AddTool(s.server, &mcp.Tool{Name: "machines", Description: machinesToolDescription, Annotations: mcphint.Overwrite("Manage machines and agents")}, s.handleMachinesTool)
 	s.registerPanoTools()
+	mcp.AddTool(s.server, &mcp.Tool{Name: "help", Description: helpToolDescription, Annotations: mcphint.Read("How to call these tools")}, s.handleHelpTool)
+	s.server.AddReceivingMiddleware(mcpevent.ActionToolsMiddleware(actionToolNames, legacyTools))
 
 	// Resources and prompts — see resources.go and prompts.go.
 	s.registerResources()

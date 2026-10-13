@@ -51,13 +51,13 @@ question instead. The fifth draws for itself, in the side panel.
 | | Asks for | Shows |
 |---|---|---|
 | [`task-stats`](../examples/extensions/task-stats/) | nothing at all | The smallest possible extension: a task menu item, no permissions, no network |
-| [`standup`](../examples/extensions/standup/) | three workspace tools | A page, a task menu item, a keyboard shortcut, a config field, brokered MCP calls |
+| [`standup`](../examples/extensions/standup/) | three workspace actions | A page, a task menu item, a keyboard shortcut, a config field, brokered MCP calls |
 | [`digest`](../examples/extensions/digest/) | the supervisor | Three surfaces, a secret, a declared host, and standing work on a schedule |
 | [`guardrail`](../examples/extensions/guardrail/) | to be *asked* | The one registry that answers back: it reviews an agent's permission prompt and refuses the commands that cannot be undone |
 | [`panel-notes`](../examples/extensions/panel-notes/) | nothing at all | A page of its own HTML, CSS and JS in the desktop side panel, talking to its extension — the page draws, the extension keeps the data |
 
 Read the first two together: `task-stats` describes the task it was handed and
-says out loud that it cannot see the conversation; `standup` asks for `getTask`
+says out loud that it cannot see the conversation; `standup` asks for `task.get`
 at install and can therefore count one. That difference is what the permission
 model is *for*, and it is the difference between the two screens a user sees.
 
@@ -78,7 +78,7 @@ a demo.
   "description": "What moved in this workspace today.",
   "license": "MIT",
   "engines": { "agentrq": ">=0.5" },
-  "mcp": { "workspace": ["listTasks", "getTask"] },
+  "mcp": { "workspace": ["workspace.get", "task.get"] },
   "hooks": { "toolCall": "deny" },
   "net": ["api.example.com"],
   "config": [{ "key": "since", "type": "number", "label": "Hours to look back" }],
@@ -101,8 +101,8 @@ a demo.
 | `artifact` | yes | The release, the asset file name, and its SHA-256 |
 | `displayName` | no | Defaults to `name` |
 | `description` | no | One line, shown in the catalogue |
-| `mcp.workspace` | no | Workspace-server tools this extension may call |
-| `mcp.supervisor` | no | Supervisor tools this extension may call |
+| `mcp.workspace` | no | Workspace-server tools this extension may call: a tool, or one action of an action tool (`task.get`) — **see below** |
+| `mcp.supervisor` | no | Supervisor tools this extension may call, in the same form |
 | `hooks.toolCall` | no | `deny` or `decide` — that it wants to review an agent's permission prompts. **See below** |
 | `net` | no | Hosts the author says it contacts — **see below** |
 | `config` | no | Settings the user fills in: `string`, `number`, `boolean` or `secret` |
@@ -124,38 +124,67 @@ than an oversight to route around.
 
 **The per-workspace server** — what an agent working a queue can do:
 
-```
-createTask  updateTaskStatus  reply  getAttachment  getWorkspace
-getTask  publishEvent  loadMemory  saveMemory  deleteMemory  searchSkills
-loadSkill  saveSkill  deleteSkill  elicit  pano
-```
+| Tool | Actions |
+|---|---|
+| `task` | `create` `get` `updateStatus` `reply` `elicit` `getAttachment` |
+| `memory` | `load` `save` `delete` |
+| `skills` | `search` `load` `save` `delete` |
+| `workspace` | `get` `publishEvent` |
+| `siteTools` | `search` `getDefinition` `call` |
+| `pano` | `save` `read` `comment` `attach` `delete` |
+| `help` | none: `{ action: "task" }` or `{ action: "task.create" }` explains one |
 
 It answers in **prose, not JSON** — it is written for agents to read.
-`getWorkspace` returns the name, the description and a count per status;
-`getTask` with `includeConversation` returns the task followed by a
+`workspace.get` returns the name, the description and a count per status;
+`task.get` with `includeConversation` returns the task followed by a
 `Conversation:` block of JSON. `standup` parses both, and those few lines are
 worth reading before you write your own.
 
 There is **no task listing here on purpose**. An agent connected to a workspace
 acts on the task it was given and reads what the workspace remembers; it does
-not enumerate the board. `getWorkspace` answers with counts per status, which is
-what a summary actually needs, and `getTask` takes an id you already have.
+not enumerate the board. `workspace.get` answers with counts per status, which is
+what a summary actually needs, and `task.get` takes an id you already have.
 
-**The supervisor server** is account-wide and does list things — `listWorkspaces`,
-`listTasks`, `listAllTasks`, the event and workflow tools, and so on. Reaching it
-is reaching every workspace, which is why it sits at the top of the grant ladder.
+**The supervisor server** is account-wide and does list things. Its tools are
+`workspace`, `task`, `memory`, `skills`, `events`, `workflows`, `machines`,
+`pano` and `help` — `workspace.list`, `task.list`, `task.listAll`,
+`events.list` and so on. Reaching it is reaching every workspace, which is why
+it sits at the top of the grant ladder.
 
 `standup` was first written asking for `listTasks` on the workspace server and
 would never have installed. Two tests now guard this from both sides: a Go test
-checks every example manifest against the servers' actual registrations, and
-`desktop/src/main/extensions/servers.js` — the lists the install screen judges
-against — is checked against the same Go source, so a tool added on one side
-fails the build on the other.
+checks every example manifest against the servers' actual registrations and
+actions, and `desktop/src/main/extensions/servers.js` — the lists the install
+screen judges against, actions included — is checked against the same Go
+source, so a tool added on one side fails the build on the other.
 
 Those lists describe **the desktop app's idea of the servers**, not the one it is
 connected to. A self-hosted backend older than the app may not have a tool listed
 there; an extension needing it installs and is then refused at call time, by the
 server, with the server's own message.
+
+### Action tools, and asking for one action
+
+Every tool but `help` takes two inputs, an action and its payload, rather than
+being a tool per thing it does. A manifest asks for one action as
+`tool.action` — `task.get`, `workspace.list` — or for the bare `tool`, which is
+every action, `delete` included. Ask for the actions you call: the install
+screen shows the list as what the extension may do, and the broker holds each
+call to the action it names.
+
+Asking how to call them needs no entry of its own. A tool's own `help` action
+is allowed by any action of that tool, and the `help` tool by any grant at all
+on that server: it only explains the others, and reads nothing of yours.
+
+```js
+await ctx.mcp.workspace('task', { workspaceId, action: 'get', payload: { taskId } })
+```
+
+The tools that became actions — `getTask`, `listWorkspaces`, `loadMemory`,
+`createEventTrigger` and the rest — are read as those actions wherever they
+still appear: in a manifest (`getTask` is `task.get`), in a saved grant, and in
+a call, which is made as the action with the old arguments as its payload. An extension written
+before the change keeps working; write new ones with the action names.
 
 ### Why the licence is required
 
@@ -209,7 +238,7 @@ only grant that can be changed afterwards without reinstalling.
 An extension is an MCP *client*, and it never holds a token. It asks:
 
 ```js
-const answer = await ctx.mcp.workspace('listTasks', { workspaceId, limit: 50 })
+const answer = await ctx.mcp.workspace('task', { workspaceId, action: 'get', payload: { taskId } })
 if (!answer.ok) return somethingSensible(answer.reason)
 ```
 
@@ -267,8 +296,8 @@ review tool calls is asking for something that is not on it, and can ask for
 that and nothing else: it gets its own section, with its own three rungs — not
 at all, may refuse, may approve or refuse — starting at the first.
 
-There is deliberately no "supervisor, but only this workspace". `listAllTasks`
-spans the platform and `createTask(workspaceId)` reaches anywhere, so the
+There is deliberately no "supervisor, but only this workspace". `task.listAll`
+spans the platform and `task.create(workspaceId)` reaches anywhere, so the
 supervisor surface *is* every workspace; that combination would be the same
 grant wearing a narrower label, and the ladder makes it unrepresentable rather
 than merely discouraged.
@@ -717,7 +746,7 @@ summary**. The list endpoint sends the last message per task and nothing else, s
 one, always — which is what `task-stats` did before it was fixed.
 
 The rule: **describe what you were handed, not what you assume is behind it.** If
-you need the thread, ask for `getTask` in your manifest and call it with
+you need the thread, ask for `task.get` in your manifest and call it with
 `includeConversation: true`, then read `total` from the answer rather than the
 length of `messages`, which is a page of at most five by default. `standup` does
 exactly this, and the two examples side by side are the clearest statement of

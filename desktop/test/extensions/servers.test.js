@@ -7,7 +7,16 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { SUPERVISOR_TOOLS, WORKSPACE_TOOLS, serverTools } from '../../src/main/extensions/servers.js'
+import {
+  RETIRED_TOOLS,
+  SUPERVISOR_ACTIONS,
+  SUPERVISOR_TOOLS,
+  WORKSPACE_ACTIONS,
+  WORKSPACE_TOOLS,
+  currentCall,
+  currentToolName,
+  serverTools,
+} from '../../src/main/extensions/servers.js'
 import { checkCompatibility, parseManifest } from '../../src/main/extensions/manifest.js'
 import standup from '../../../examples/extensions/standup/agentrq-extension.json'
 import digest from '../../../examples/extensions/digest/agentrq-extension.json'
@@ -53,6 +62,7 @@ describe('WORKSPACE_TOOLS', () => {
   it('offers no way to list tasks', () => {
     expect(WORKSPACE_TOOLS).not.toContain('listTasks')
     expect(WORKSPACE_TOOLS).not.toContain('listAllTasks')
+    expect(WORKSPACE_ACTIONS.task.filter((action) => action.startsWith('list'))).toEqual([])
   })
 
   it('cannot be edited by whoever it is handed to', () => {
@@ -69,12 +79,103 @@ describe('SUPERVISOR_TOOLS', () => {
 
   it('is the surface that does list things', () => {
     // The asymmetry with the workspace server, stated so it reads as intended.
-    expect(SUPERVISOR_TOOLS).toContain('listAllTasks')
-    expect(SUPERVISOR_TOOLS).toContain('listTasks')
+    expect(SUPERVISOR_ACTIONS.task).toContain('listAll')
+    expect(SUPERVISOR_ACTIONS.task).toContain('list')
   })
 
   it('cannot be edited by whoever it is handed to', () => {
     expect(Object.isFrozen(SUPERVISOR_TOOLS)).toBe(true)
+  })
+})
+
+/** `Name struct { Action string `json:"action" jsonschema:"enum: a, b"`` — an action tool's actions. */
+function actionsIn(file, struct) {
+  const re = new RegExp(`${struct} struct \\{\\s*Action\\s+string\\s+\`json:"action" jsonschema:"enum: ([^"]+)"\``)
+  const match = re.exec(readFileSync(join(REPO, file), 'utf-8'))
+  expect(match, `${struct} in ${file}`).not.toBeNull()
+  return match[1].split(', ')
+}
+
+const WS = 'backend/internal/controller/mcp/'
+const CORE = 'backend/internal/handler/coremcp/'
+
+describe('the action tools', () => {
+  it.each([
+    ['workspace', WORKSPACE_ACTIONS, 'task', WS + 'task.go', 'TaskParams'],
+    ['workspace', WORKSPACE_ACTIONS, 'memory', WS + 'tools.go', 'MemoryParams'],
+    ['workspace', WORKSPACE_ACTIONS, 'skills', WS + 'tools.go', 'SkillsParams'],
+    ['workspace', WORKSPACE_ACTIONS, 'workspace', WS + 'tools.go', 'WorkspaceParams'],
+    ['workspace', WORKSPACE_ACTIONS, 'siteTools', WS + 'tools.go', 'SiteToolsParams'],
+    ['workspace', WORKSPACE_ACTIONS, 'pano', WS + 'pano.go', 'PanoParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'workspace', CORE + 'tools.go', 'WorkspaceToolParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'task', CORE + 'task.go', 'TaskParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'memory', CORE + 'tools.go', 'MemoryToolParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'skills', CORE + 'tools.go', 'SkillsToolParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'events', CORE + 'tools.go', 'EventsToolParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'workflows', CORE + 'tools.go', 'WorkflowsToolParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'machines', CORE + 'tools.go', 'MachinesToolParams'],
+    ['supervisor', SUPERVISOR_ACTIONS, 'pano', WS + 'pano.go', 'PanoParams'],
+  ])('the %s server\'s %s offers exactly the actions its Go enum does', (_surface, actions, tool, file, struct) => {
+    expect([...actions[tool]]).toEqual(actionsIn(file, struct))
+  })
+
+  it('are every tool each surface offers, but help', () => {
+    expect(Object.keys(WORKSPACE_ACTIONS).sort()).toEqual(WORKSPACE_TOOLS.filter((tool) => tool !== 'help').sort())
+    expect(Object.keys(SUPERVISOR_ACTIONS).sort()).toEqual(SUPERVISOR_TOOLS.filter((tool) => tool !== 'help').sort())
+  })
+
+  it.each([
+    ['workspace', 'backend/internal/controller/mcp/tools.go'],
+    ['supervisor', 'backend/internal/handler/coremcp/tools.go'],
+  ])('retire on the %s surface exactly the names its legacyTools map does', (surface, file) => {
+    const legacy = Object.fromEntries(
+      [...readFileSync(join(REPO, file), 'utf-8').matchAll(/"(\w+)":\s*\{Tool: "(\w+)", Action: "(\w+)"/g)].map((m) => [
+        m[1],
+        `${m[2]}.${m[3]}`,
+      ]),
+    )
+    expect({ ...RETIRED_TOOLS[surface] }).toEqual(legacy)
+  })
+
+  it('name a real action for every retired tool, which no server lists any more', () => {
+    for (const [surface, actions, tools] of [
+      ['workspace', WORKSPACE_ACTIONS, WORKSPACE_TOOLS],
+      ['supervisor', SUPERVISOR_ACTIONS, SUPERVISOR_TOOLS],
+    ]) {
+      for (const [old, current] of Object.entries(RETIRED_TOOLS[surface])) {
+        const [tool, action] = current.split('.')
+        expect(actions[tool]).toContain(action)
+        // getWorkspace on one surface is the tool workspace on neither.
+        expect(tools).not.toContain(old)
+      }
+    }
+  })
+})
+
+describe('currentToolName and currentCall', () => {
+  it('read a retired name as the task action it became, and leave every other alone', () => {
+    expect(currentToolName('supervisor', 'updateTaskOrder')).toBe('task.updateSortingOrder')
+    expect(currentToolName('workspace', 'listTasks')).toBe('listTasks')
+    expect(currentToolName('elsewhere', 'getTask')).toBe('getTask')
+  })
+
+  it('turn an old call into an action call, its arguments the payload and its workspace the address', () => {
+    expect(currentCall('supervisor', 'createTask', { workspaceId: 'ws1', title: 't' })).toEqual({
+      tool: 'task',
+      args: { workspaceId: 'ws1', action: 'create', payload: { title: 't' } },
+    })
+    expect(currentCall('workspace', 'reply', { chatId: 't1', text: 'hi' })).toEqual({
+      tool: 'task',
+      args: { action: 'reply', payload: { taskId: 't1', text: 'hi' } },
+    })
+    // Only the workspace reply renames: the supervisor's always said taskId.
+    expect(currentCall('supervisor', 'replyToTask', { taskId: 't1', text: 'hi' }).args.payload).toEqual({ taskId: 't1', text: 'hi' })
+    expect(currentCall('workspace', 'getWorkspace', { workspaceId: 'ws1' })).toEqual({
+      tool: 'workspace',
+      args: { workspaceId: 'ws1', action: 'get', payload: {} },
+    })
+    expect(currentCall('workspace', 'help', { action: 'task' })).toEqual({ tool: 'help', args: { action: 'task' } })
+    expect(currentCall('workspace', 'getTask').args).toEqual({ action: 'get', payload: {} })
   })
 })
 
@@ -85,6 +186,8 @@ describe('serverTools', () => {
     expect(tools.appVersion).toBe('0.5.21')
     expect(tools.workspaceTools).toEqual([...WORKSPACE_TOOLS])
     expect(tools.supervisorTools).toEqual([...SUPERVISOR_TOOLS])
+    expect(tools.workspaceActions).toBe(WORKSPACE_ACTIONS)
+    expect(tools.supervisorActions).toBe(SUPERVISOR_ACTIONS)
   })
 
   it('hands over copies, so a caller cannot edit what everything else reads', () => {

@@ -158,7 +158,7 @@ func TestLoadMemoryMissIsNotAnError(t *testing.T) {
 		t.Fatalf("a miss must not be an error: %s", resultText(t, res))
 	}
 	text := resultText(t, res)
-	if !strings.Contains(text, "never-written.md") || !strings.Contains(text, "saveMemory") {
+	if !strings.Contains(text, "never-written.md") || !strings.Contains(text, "memory save") {
 		t.Errorf("a miss should name the memory and point at the fix; got %q", text)
 	}
 }
@@ -537,20 +537,14 @@ func TestConfiguredLimitsAreEnforcedAndAdvertised(t *testing.T) {
 		t.Errorf("refusal should name the configured limit; got %q", text)
 	}
 
-	want := map[string]string{
-		"saveMemory": "at most 40 KiB",
-		"saveSkill":  "SKILL.md at most 128 KiB, any other file at most 64 KiB, UTF-8 text only, at most 10 files per skill",
-	}
-	for _, tool := range toolsOverTheWire(t) {
-		name, _ := tool["name"].(string)
-		if w, ok := want[name]; ok {
-			if d, _ := tool["description"].(string); !strings.Contains(d, w) {
-				t.Errorf("%s description %q should contain %q", name, d, w)
-			}
-			delete(want, name)
+	// The limits are in each action's help, which is built when it is asked.
+	for topic, w := range map[string]string{
+		"memory.save": "at most 40 KiB",
+		"skills.save": "SKILL.md 128 KiB, other files 64 KiB, UTF-8 text only, 10 files per skill",
+	} {
+		res, _, _ := ps.handleHelp(context.Background(), nil, HelpParams{Action: topic})
+		if text := resultText(t, res); !strings.Contains(text, w) {
+			t.Errorf("help for %s %q should contain %q", topic, text, w)
 		}
-	}
-	if len(want) != 0 {
-		t.Errorf("tools not advertised: %v", want)
 	}
 }
