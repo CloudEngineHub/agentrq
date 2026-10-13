@@ -6,8 +6,10 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/mustafaturan/monoflake"
+	zlog "github.com/rs/zerolog/log"
 
 	entity "github.com/agentrq/agentrq/backend/internal/data/entity/crud"
 	mapper "github.com/agentrq/agentrq/backend/internal/mapper/api"
@@ -19,7 +21,7 @@ import (
 // the web app reacts to. It is the one way a change made by the supervisor's
 // MCP, which has no stream of its own, reaches the screen.
 func forwardCRUDEvent(ctx context.Context, repo base.Repository, bus *eventbus.Bus, ev entity.CRUDEvent) {
-	if publishWorkspaceListChange(bus, ev) {
+	if publishWorkspaceListChange(bus, ev) || publishPanoChange(bus, ev) {
 		return
 	}
 	ws, err := repo.SystemGetWorkspace(ctx, ev.WorkspaceID)
@@ -104,4 +106,47 @@ func publishTaskDelete(bus *eventbus.Bus, ev entity.CRUDEvent, ownerID string) b
 		Payload: map[string]string{"id": monoflake.ID(ev.ResourceID).String()},
 	})
 	return true
+}
+
+// panoChangedEvent tells an open Pano board to read the Pano again.
+const panoChangedEvent = "pano.changed"
+
+// publishPanoChange puts a Pano doc written, deleted, commented on or given
+// attachments on its owner's stream, and reports whether ev was a Pano event.
+// Agents write the Pano from other workspaces, so without it the board shows
+// their docs only after a reload.
+func publishPanoChange(bus *eventbus.Bus, ev entity.CRUDEvent) bool {
+	if ev.ResourceType != entity.ResourcePano {
+		return false
+	}
+	bus.Publish(0, monoflake.ID(ev.UserID).String(), eventbus.Event{
+		Type:    panoChangedEvent,
+		Payload: map[string]string{"id": monoflake.ID(ev.ResourceID).String(), "action": ev.Action.String()},
+	})
+	return true
+}
+
+// panoTaskSyncer keeps the checklist items assigned to a task in step with it.
+type panoTaskSyncer interface {
+	SyncPanoTask(ctx context.Context, taskID int64) (int64, []int64, error)
+}
+
+// syncPanoAssignees writes a task's new status into the Pano checklist items
+// assigned to it, wherever the status was changed — by the person, the agent
+// or the supervisor — and tells open boards. The pubsub is in-process, so
+// only the instance that changed the task writes the docs.
+func syncPanoAssignees(ctx context.Context, pano panoTaskSyncer, bus *eventbus.Bus, ev entity.CRUDEvent) {
+	if ev.ResourceType != entity.ResourceTask || (ev.Action != entity.ActionTaskUpdate && ev.Action != entity.ActionTaskComplete) {
+		return
+	}
+	uid, ids, err := pano.SyncPanoTask(ctx, ev.ResourceID)
+	if err != nil && !errors.Is(err, base.ErrNotFound) {
+		zlog.Warn().Err(err).Int64("task", ev.ResourceID).Msg("[pano] failed to sync an assigned task's status")
+	}
+	for _, id := range ids {
+		bus.Publish(0, monoflake.ID(uid).String(), eventbus.Event{
+			Type:    panoChangedEvent,
+			Payload: map[string]string{"id": monoflake.ID(id).String(), "action": entity.ActionPanoUpdate.String()},
+		})
+	}
 }
