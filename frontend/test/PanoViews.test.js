@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   fetchWorkspaces: vi.fn(),
   listPanoDocs: vi.fn(),
   getPanoDoc: vi.fn(),
+  getTask: vi.fn(),
   createPanoDoc: vi.fn(),
   updatePanoDoc: vi.fn(),
   deletePanoDoc: vi.fn(),
@@ -66,6 +67,7 @@ const { useWorkspaceStore } = await import('../src/stores/workspaceStore');
 const { notifyWebMCPChange } = await import('../src/composables/useWebMCPChanges');
 const { PANO_COLORS, PANO_MAX_FILE_BYTES, panoTilt, isPanoChatRoute } = await import('../src/composables/usePano');
 const { default: PanoChatColumn } = await import('../src/components/PanoChatColumn.vue');
+const { taskRingClass } = await import('../src/composables/useTaskStatusStyle');
 const { toasts } = (await import('../src/composables/useToasts')).useToasts();
 
 // The app's `v-click-outside`, as `src/app.js` registers it.
@@ -97,6 +99,7 @@ async function mount(at, workspaces = WORKSPACES) {
       { path: '/workspaces/:id', component: { render: () => null } },
       { path: '/pano/new', component: PanoDocView },
       { path: '/pano/:id', component: PanoDocView },
+      { path: '/pano/:docId/chat/:workspaceId/:taskId', components: { default: PanoDocView, chat: { render: () => null } } },
       { path: '/workspaces/:id/tasks/:taskId', component: { render: () => null } },
     ],
   });
@@ -173,6 +176,7 @@ beforeEach(() => {
   toasts.value = [];
   bus.handlers.length = 0;
   vi.clearAllMocks();
+  api.getTask.mockRejectedValue(new Error('not read'));
   api.ensureSupervisorWorkspace.mockResolvedValue({ workspace: { id: 'sup', name: 'supervisor' } });
   api.fetchWorkspaces.mockResolvedValue({ workspaces: WORKSPACES });
 });
@@ -922,6 +926,70 @@ describe('a doc', () => {
       await click(chip);
       await settle();
       expect(router.currentRoute.value.path).toBe('/workspaces/ws2/tasks/t7');
+    });
+
+    it('opens an assigned task beside the doc on a large screen, from the chip and from the menu', async () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      try {
+        api.getPanoDoc.mockResolvedValue({ doc: { ...DOC, markdown: '- [ ] ship → [@ops](/workspaces/ws2/tasks/t7 "ongoing")' } });
+        const { el, router } = await mount('/pano/d1');
+        await click($(el, 'pano-body').querySelector('a.pano-assignee'));
+        await settle();
+        expect(router.currentRoute.value.path).toBe('/pano/d1/chat/ws2/t7');
+        expect($(el, 'pano-body')).not.toBeNull();
+        await click($(el, 'pano-body').querySelector('[data-pano-assign]'));
+        await click($(el, 'pano-item-task'));
+        await settle();
+        expect(router.currentRoute.value.path).toBe('/pano/d1/chat/ws2/t7');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('lists the tasks a doc points at above its comments, once each, and opens one beside the doc', async () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      try {
+        api.getPanoDoc.mockResolvedValue({ doc: { ...DOC, markdown: '- [ ] ship → [@ops](/workspaces/ws2/tasks/t7 "ongoing")\n\nSee [the fix](/workspaces/ws1/tasks/t9) and [again](/workspaces/ws1/tasks/t9), [untitled](/workspaces/ws1/tasks/t8 "completed").' } });
+        api.getTask.mockImplementation(async (ws, id) => {
+          if (id === 't7') throw new Error('task not found');
+          if (id === 't8') return { task: { id } };
+          return { task: { id, title: 'Fix the long thing' } };
+        });
+        const { el, router } = await mount('/pano/d1');
+        await settle();
+        const links = $$(el, 'pano-related-task');
+        // The title of a task that can be read; the link's own text for one that cannot.
+        expect(links.map((a) => a.textContent)).toEqual(['@ops', 'Fix the long thing', 'untitled']);
+        expect(api.getTask).toHaveBeenCalledTimes(3);
+        // A status shows as its dot, named for screen readers, not as a word.
+        expect(text($(el, 'pano-related'))).not.toContain('Ongoing');
+        // like the doc's own checklist boxes, in the colours of every task list:
+        // a completed one holds a check.
+        const dots = $$(el, 'pano-related-status');
+        expect(dots.map((d) => d.getAttribute('aria-label'))).toEqual(['Ongoing', 'Not started', 'Completed']);
+        ['ongoing', 'notstarted', 'completed'].forEach((s, i) => expect(dots[i].className).toContain(taskRingClass(s)));
+        expect(dots.map((d) => !!d.querySelector('svg'))).toEqual([false, false, true]);
+        // Each names the workspace it belongs to.
+        expect($$(el, 'pano-related-workspace').map((s) => s.textContent)).toEqual(['ops', 'Home', 'Home']);
+        // Reading the doc again does not read its tasks again.
+        const { doc } = await api.getPanoDoc();
+        api.getPanoDoc.mockClear();
+        api.getPanoDoc.mockResolvedValue({ doc: { ...doc } });
+        await click($(el, 'pano-body').querySelector('input'));
+        await settle();
+        expect(api.getPanoDoc).toHaveBeenCalledTimes(1);
+        expect(api.getTask).toHaveBeenCalledTimes(3);
+        await click(links[1]);
+        await settle();
+        expect(router.currentRoute.value.path).toBe('/pano/d1/chat/ws1/t9');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('lists no related tasks when the doc points at none', async () => {
+      const { el } = await mount('/pano/d1');
+      expect($(el, 'pano-related')).toBeNull();
     });
 
     it('offers no workspace to assign to when there is none', async () => {

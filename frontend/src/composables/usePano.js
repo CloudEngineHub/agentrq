@@ -291,6 +291,25 @@ export function panoAssignees(html, { link = true } = {}) {
   })
 }
 
+/**
+ * The tasks a doc's rendered markdown points at, once each, in the order they
+ * appear: an assigned item's and any other link to a task alike.
+ */
+export function panoRelatedTasks(html) {
+  const page = document.createElement('div')
+  page.innerHTML = html
+  const seen = new Map()
+  // A chip's path is always a task's, and its name sits between the dot and the
+  // label. The old 'done' reads as the task status it stands for.
+  for (const chip of page.querySelectorAll('a.pano-assignee[data-pano-task]')) {
+    const path = chip.dataset.panoTask
+    if (seen.has(path)) continue
+    const [, , workspaceId, , id] = path.split('/')
+    seen.set(path, { path, workspaceId, id, name: chip.childNodes[1].textContent, status: chip.dataset.status === 'done' ? 'completed' : chip.dataset.status })
+  }
+  return [...seen.values()]
+}
+
 /** Rendered markdown with a menu button on each checklist item, to assign it. */
 export function panoItemMenus(html) {
   return String(html || '').replace(/<input\b[^>]*type="checkbox"[^>]*>/g, (tag) => `${tag}<button type="button" class="pano-assign" data-pano-assign="" title="Assign to a workspace" aria-label="Assign to a workspace" aria-haspopup="menu">${DOTS}</button>`)
