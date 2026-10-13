@@ -9,16 +9,18 @@
  * The Pano board: every doc of the account as a post-it, showing only its
  * opening. Thin on purpose: the rules are in `usePano`, where they are tested.
  */
-import { onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import * as api from '../api'
 import {
   usePanoBoard, panoAuthor, panoColor, panoTilt, panoInitial, timeAgo, expiresLabel, isOwnPanoDoc, recolorPanoDoc, PANO_COLORS,
-  panoCheckable, panoCheckboxIndex, checkPanoItem, panoAssignees,
+  panoCheckable, panoCheckboxIndex, checkPanoItem, panoAssignees, usePanoChat,
 } from '../composables/usePano'
 import PanoTaskButton from '../components/PanoTaskButton.vue'
 import PanoProgress from '../components/PanoProgress.vue'
+import ComposerBox from '../components/ComposerBox.vue'
+import ComposerNotice from '../components/ComposerNotice.vue'
 import DeleteModal from '../components/DeleteModal.vue'
 import { renderMarkdown } from '../utils/markdown'
 import { useWorkspaceStore } from '../stores/workspaceStore'
@@ -26,11 +28,29 @@ import { useToasts } from '../composables/useToasts'
 import { useEventBus } from '../useEventBus'
 import { onWebMCPChange } from '../composables/useWebMCPChanges'
 
+const route = useRoute()
 const router = useRouter()
 const { docs, loading, error, query, color, shown, load } = usePanoBoard({ api })
-const { workspaces } = storeToRefs(useWorkspaceStore())
+const workspaceStore = useWorkspaceStore()
+const { workspaces } = storeToRefs(workspaceStore)
 const { notifySuccess, notifyError } = useToasts()
 const { connect, disconnect, onEvent } = useEventBus(undefined, { buffer: false })
+
+// The chat with the supervisor: a box under the board on a large screen. Once
+// a message is sent its task opens in a card of its own beside the page,
+// which App.vue draws (PanoChatColumn), as it does the desktop side panel.
+const chat = usePanoChat({ api, store: workspaceStore })
+const { supervisor, online: chatOnline, message: chatMessage, sending: chatSending } = chat
+const chatOpen = computed(() => !!route.params.taskId)
+
+async function sendChat() {
+  try {
+    const task = await chat.send()
+    if (task) router.push(`/pano/chat/${task.workspaceId}/${task.id}`)
+  } catch (err) {
+    notifyError(err.message)
+  }
+}
 
 // The doc whose color menu is open, and the one waiting on the delete dialog.
 const recoloring = ref(null)
@@ -47,6 +67,7 @@ function onKey(event) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKey)
+  chat.ensure().catch((err) => notifyError(err.message))
   await load()
   // Agents write the Pano from every workspace; their docs show as they land.
   onEvent((event) => {
@@ -106,7 +127,9 @@ const action = 'p-1 rounded-sm opacity-60 hover:opacity-100 hover:bg-black/10 tr
 </script>
 
 <template>
-  <div class="flex flex-col h-full w-full overflow-y-auto custom-scrollbar">
+  <!-- The board scrolls above the chat box, which stays at the bottom. -->
+  <div class="@container flex flex-col h-full w-full min-h-0">
+  <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
     <div class="w-full px-4 py-2 mb-4 shrink-0 flex flex-row items-start justify-between gap-4">
       <div class="flex flex-col min-w-0 flex-1">
         <h1 class="text-lg md:text-2xl font-black text-gray-800 dark:text-zinc-200 truncate leading-tight">Pano</h1>
@@ -138,7 +161,8 @@ const action = 'p-1 rounded-sm opacity-60 hover:opacity-100 hover:bg-black/10 tr
       <p v-if="loading" class="text-[11px] text-gray-400 dark:text-zinc-500">Loading the Pano…</p>
       <p v-else-if="error" data-test="pano-error" class="text-[11px] font-bold text-red-600 dark:text-red-400">{{ error }}</p>
 
-      <div v-else class="grid gap-x-5 gap-y-7 pt-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      <!-- Columns follow the board's own width, which the chat narrows. -->
+      <div v-else class="grid gap-x-5 gap-y-7 pt-2 grid-cols-1 @min-[33rem]:grid-cols-2 @min-[57rem]:grid-cols-3 @min-[73rem]:grid-cols-4 @min-[89rem]:grid-cols-5">
         <!-- A new note, first on the board; a dot starts it in that color. -->
         <div data-test="pano-new-card"
           class="relative flex flex-col items-center justify-center gap-3 h-48 sm:h-72 p-5 rounded-md border border-dashed border-gray-300 dark:border-zinc-700 bg-white/60 dark:bg-zinc-900/60 text-center">
@@ -204,6 +228,25 @@ const action = 'p-1 rounded-sm opacity-60 hover:opacity-100 hover:bg-black/10 tr
         </article>
       </div>
     </div>
+
+  </div>
+
+    <!-- The chat box: large screens only, and only until a chat is open,
+         whose own composer takes over. -->
+    <form v-if="!chatOpen" data-test="pano-chat" class="hidden lg:block shrink-0 px-4 pt-3" @submit.prevent="sendChat">
+      <ComposerBox v-model="chatMessage" data-test="pano-chat-input" dir="auto"
+        @keydown.meta.enter.prevent="sendChat" @keydown.ctrl.enter.prevent="sendChat"
+        :disabled="!chatOnline || chatSending"
+        :placeholder="chatOnline ? `Ask ${supervisor.name} about the Pano... (Cmd ⌘ + Enter to send)` : 'Connect your supervisor agent to start chatting'"
+        :send-disabled="!chatOnline || !chatMessage.trim() || chatSending" />
+      <ComposerNotice v-if="!chatOnline" data-test="pano-chat-offline" tone="red" pulse>
+        Supervisor offline. Connect your supervisor agent to start chatting.
+        <template #action>
+          <router-link v-if="supervisor" :to="`/workspaces/${supervisor.id}`" data-test="pano-chat-connect"
+            class="ml-auto text-[10px] font-bold text-red-700 dark:text-red-400 underline underline-offset-2 hover:no-underline">Connect</router-link>
+        </template>
+      </ComposerNotice>
+    </form>
 
     <DeleteModal
       :show="!!pendingDelete"

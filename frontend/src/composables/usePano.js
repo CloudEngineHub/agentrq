@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { computed, ref } from 'vue'
+import { clampWidth } from './useSidePanel'
 
 /**
  * The Pano: the account's board of markdown docs, written by every workspace's
@@ -613,4 +614,120 @@ export function usePanoDoc(id, { api, color = PANO_COLORS[0].name }) {
     doc, loading, error, busy, editing, draft,
     load, startEditing, cancelEditing, addDraftFile, removeDraftFile, save, checkItem, assignItem, remove, comment, attach,
   }
+}
+
+/** The workspace the Pano's chat talks to: the account's supervisor. */
+export function panoSupervisor(workspaces = []) {
+  return workspaces.find((w) => w.name === 'supervisor')
+}
+
+/** Whether a route shows a Pano chat: the one whose page has a `chat` view. */
+export function isPanoChatRoute(route) {
+  return !!route?.matched?.at(-1)?.components?.chat
+}
+
+/** How long a chat's first line may run as its task's title. */
+export const PANO_CHAT_TITLE_MAX = 80
+
+/**
+ * The task a chat message starts: its first line is the title, and the body
+ * says where it was written, so the supervisor knows the person is on the
+ * board and what they probably want from it.
+ */
+export function panoChatTask(message) {
+  const text = message.trim()
+  const firstLine = text.split('\n')[0].trim()
+  const title = firstLine.length > PANO_CHAT_TITLE_MAX ? `${firstLine.slice(0, PANO_CHAT_TITLE_MAX - 1).trimEnd()}…` : firstLine
+  const body = `${text}\n\n---\nSent from the Pano chat: the person is looking at the Pano board, the account's shared docs. ` +
+    'They may want a doc posted or changed, or to talk about one: read the board with the pano tool when it helps. Reply in this task.'
+  return { title, body }
+}
+
+/**
+ * The board's chat box. It talks to the supervisor workspace, which `ensure`
+ * makes again when it was deleted, and sends only while its agent is
+ * connected. A message starts a task there, which `send` returns.
+ */
+export function usePanoChat({ api, store }) {
+  const supervisor = computed(() => panoSupervisor(store.workspaces))
+  const online = computed(() => !!supervisor.value?.agentConnected)
+  const message = ref('')
+  const sending = ref(false)
+
+  async function ensure() {
+    if (supervisor.value) return
+    await api.ensureSupervisorWorkspace()
+    await store.fetchWorkspaces()
+  }
+
+  async function send() {
+    const text = message.value.trim()
+    if (!text || !online.value || sending.value) return null
+    sending.value = true
+    try {
+      const { title, body } = panoChatTask(text)
+      const res = await api.createTask(supervisor.value.id, title, body)
+      message.value = ''
+      return res.task
+    } finally {
+      sending.value = false
+    }
+  }
+
+  return { supervisor, online, message, sending, ensure, send }
+}
+
+/** Where the chat column's dragged width is remembered, per device. */
+export const PANO_CHAT_WIDTH_KEY = 'agentrq:pano-chat-width'
+/** The chat column before it is dragged: a phone's width. */
+export const PANO_CHAT_DEFAULT_WIDTH = 480
+
+function localStore() {
+  try {
+    return globalThis.localStorage
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The chat column's width, dragged as the desktop side panel's is and held to
+ * the same limits (`clampWidth`): never under its minimum, and never leaving
+ * the page beside it less than a phone's width. `width` is what was dragged,
+ * or null for the default; storage that is missing or refuses only means the
+ * width is not remembered.
+ */
+export function usePanoChatWidth({ storage = localStore() } = {}) {
+  let saved = null
+  try {
+    saved = Number.parseInt(storage?.getItem(PANO_CHAT_WIDTH_KEY) ?? '', 10)
+  } catch {
+    saved = null
+  }
+  const width = ref(Number.isFinite(saved) ? saved : null)
+
+  /** How wide the column is drawn, sharing `available` pixels with the page. */
+  function drawn(available) {
+    return clampWidth(width.value ?? PANO_CHAT_DEFAULT_WIDTH, available)
+  }
+
+  function set(value, available) {
+    width.value = clampWidth(value, available)
+    try {
+      storage?.setItem(PANO_CHAT_WIDTH_KEY, String(width.value))
+    } catch {
+      // Not remembered, and nothing else lost.
+    }
+  }
+
+  function reset() {
+    width.value = null
+    try {
+      storage?.removeItem(PANO_CHAT_WIDTH_KEY)
+    } catch {
+      // As above.
+    }
+  }
+
+  return { width, drawn, set, reset }
 }
