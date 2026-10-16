@@ -77,24 +77,67 @@ func TestElicitation(t *testing.T) {
 		})
 	})
 
-	t.Run("elicitation/complete closes a url question still waiting", func(t *testing.T) {
+	t.Run("elicitation/complete ends a url question's wait as completed", func(t *testing.T) {
+		rec, a, _ := midTurn(t, agentOpts{})
+		asked := make(chan struct{})
+		var cause error
+		rec.read(func() {
+			rec.ask = func(ctx context.Context, _ agentlink.Question) (agentlink.Answer, error) {
+				close(asked)
+				<-ctx.Done()
+				cause = context.Cause(ctx)
+				// AskHuman closes the card and answers accept for this cause.
+				return agentlink.Answer{Action: "accept"}, nil
+			}
+		})
+		url := string(fixture(t, "elicitation_create.url.request.json"))
+		a.request(5, methodElicitationCreate, url)
+		<-asked
+		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"nope"}}`)
+		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":"not an object"}`)
+		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"e-1"}}`)
+		if got := a.answerTo(5); string(got.Result) != `{"action":"accept"}` {
+			t.Fatalf("the agent was answered %s, want accept", got.Result)
+		}
+		if !errors.Is(cause, agentlink.ErrQuestionCompleted) {
+			t.Fatalf("the wait ended with %v, want ErrQuestionCompleted", cause)
+		}
+
+		// A late second notice finds nothing, and the id is free again.
+		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"e-1"}}`)
+		rec.read(func() { rec.ask = answers(agentlink.Answer{Action: "decline"}, nil) })
+		a.request(6, methodElicitationCreate, url)
+		if got := a.answerTo(6); string(got.Result) != `{"action":"decline"}` {
+			t.Fatalf("the agent was answered %s, want the human's decline", got.Result)
+		}
+	})
+
+	t.Run("a url question reusing an open id is refused -32602", func(t *testing.T) {
 		rec, a, _ := midTurn(t, agentOpts{})
 		asked := make(chan struct{})
 		rec.read(func() {
 			rec.ask = func(ctx context.Context, _ agentlink.Question) (agentlink.Answer, error) {
 				close(asked)
 				<-ctx.Done()
-				return agentlink.Answer{}, ctx.Err()
+				return agentlink.Answer{Action: "accept"}, nil
 			}
 		})
-		a.request(5, methodElicitationCreate, string(fixture(t, "elicitation_create.url.request.json")))
+		url := string(fixture(t, "elicitation_create.url.request.json"))
+		a.request(5, methodElicitationCreate, url)
 		<-asked
-		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"nope"}}`)
-		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":"not an object"}`)
-		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"e-1"}}`)
-		if got := a.answerTo(5); string(got.Result) != `{"action":"cancel"}` {
-			t.Fatalf("the agent was answered %s, want cancel", got.Result)
+		a.request(6, methodElicitationCreate, url)
+		if got := a.answerTo(6); got.Error == nil || got.Error.Code != codeInvalidParams {
+			t.Fatalf("the agent was answered %+v, want error -32602", got)
 		}
+		a.write(`{"jsonrpc":"2.0","method":"elicitation/complete","params":{"elicitationId":"e-1"}}`)
+		if got := a.answerTo(5); string(got.Result) != `{"action":"accept"}` {
+			t.Fatalf("the first question was answered %s, want accept", got.Result)
+		}
+		rec.read(func() {
+			if len(rec.humanTasks) != 1 || len(rec.questions) != 1 {
+				t.Fatalf("human tasks were %v and questions %+v, want one of each", rec.humanTasks, rec.questions)
+			}
+		})
 	})
 
 	t.Run("an invalid schema is answered cancel", func(t *testing.T) {
