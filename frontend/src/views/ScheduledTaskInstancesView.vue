@@ -174,13 +174,20 @@ async function copyTaskBodyText() {
   }, 1500);
 }
 
+// Moving between scheduled tasks reloads while a load is out; only the newest
+// may write, or the previous task's instances replace this one's.
+let loadSeq = 0;
+
 async function loadData() {
+  const mine = ++loadSeq;
   loading.value = true;
+  error.value = '';
   try {
     const [wsData, tasksData] = await Promise.all([
       getWorkspace(workspaceId.value),
       fetchTasks(workspaceId.value)
     ]);
+    if (mine !== loadSeq) return;
 
     workspaceName.value = wsData.workspace?.name || wsData.name || '';
     const allTasks = tasksData.tasks || tasksData || [];
@@ -192,9 +199,9 @@ async function loadData() {
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 24);
   } catch (err) {
-    error.value = err.message || 'Failed to load instances';
+    if (mine === loadSeq) error.value = err.message || 'Failed to load instances';
   } finally {
-    loading.value = false;
+    if (mine === loadSeq) loading.value = false;
   }
 }
 

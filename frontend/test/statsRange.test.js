@@ -253,6 +253,65 @@ describe('useStatsRange', () => {
     expect(onError).toHaveBeenCalledWith(errNetwork);
   });
 
+  it('keeps the newest load when an older one finishes after it', async () => {
+    // A workspace or range switch starts a second load while the first is in
+    // flight; the first answer arriving last must not replace the second.
+    const pending = [];
+    const range = useStatsRange({
+      fetchStats: () => new Promise((resolve) => pending.push(resolve)),
+    });
+
+    const first = range.load();
+    const second = range.load();
+
+    pending[1]({ summary: { tasksCompleted: 2 } });
+    await second;
+    expect(range.loading.value).toBe(false);
+
+    pending[0]({ summary: { tasksCompleted: 1 } });
+    await first;
+
+    expect(range.stats.value).toEqual({ summary: { tasksCompleted: 2 } });
+  });
+
+  it('stays loading until the newest load finishes', async () => {
+    const pending = [];
+    const range = useStatsRange({
+      fetchStats: () => new Promise((resolve) => pending.push(resolve)),
+    });
+
+    const first = range.load();
+    const second = range.load();
+
+    pending[0]({ summary: { tasksCompleted: 1 } });
+    await first;
+    expect(range.loading.value).toBe(true);
+
+    pending[1]({ summary: { tasksCompleted: 2 } });
+    await second;
+    expect(range.loading.value).toBe(false);
+  });
+
+  it('ignores a failure from a load that has been superseded', async () => {
+    const onError = vi.fn();
+    const pending = [];
+    const range = useStatsRange({
+      fetchStats: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+      onError,
+    });
+
+    const first = range.load();
+    const second = range.load();
+
+    pending[1].resolve({ summary: { tasksCompleted: 2 } });
+    await second;
+    pending[0].reject(new Error('network unreachable'));
+    await first;
+
+    expect(range.stats.value).toEqual({ summary: { tasksCompleted: 2 } });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('reports a failure through console.error when given no handler', async () => {
     const errNetwork = new Error('network unreachable');
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});

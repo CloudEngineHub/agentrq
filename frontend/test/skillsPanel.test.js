@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createApp, h, nextTick } from 'vue';
+import { createApp, h, nextTick, ref } from 'vue';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 
@@ -305,6 +305,31 @@ describe('the Skills tab', () => {
     answer({ skills: [SKILLS[1]] });
     await settle();
     expect(el.querySelectorAll('[data-test="skill-card"]')).toHaveLength(1);
+  });
+
+  it('keeps the new workspace\'s list when the previous one\'s answers last', async () => {
+    const answers = {};
+    api.searchWorkspaceSkills.mockImplementation((id) => new Promise((r) => { answers[id] = r; }));
+    const workspaceId = ref('ws1');
+    const el = document.createElement('div');
+    document.body.append(el);
+    const app = createApp({ render: () => h(SkillsPanel, { workspaceId: workspaceId.value }) });
+    app.use(createPinia());
+    app.use(createRouter({ history: createMemoryHistory(), routes: [{ path: '/:any(.*)*', component: { render: () => null } }] }));
+    app.mount(el);
+    apps.push(app);
+    await settle();
+
+    workspaceId.value = 'ws2';
+    await settle();
+    answers.ws2({ skills: [SKILLS[1]] });
+    await settle();
+    answers.ws1({ skills: SKILLS });
+    await settle();
+
+    const cards = el.querySelectorAll('[data-test="skill-card"]');
+    expect(cards).toHaveLength(1);
+    expect(cards[0].getAttribute('href')).toBe('/workspaces/ws2/settings/skills/review');
   });
 });
 

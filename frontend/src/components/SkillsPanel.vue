@@ -212,16 +212,21 @@ const view = computed(() => skillsState({ loading: loading.value, error: error.v
 const orderedSkills = computed(() => orderSkills(skills.value));
 
 // A quiet reload, after an agent's change, keeps the list on screen.
+// A workspace switch or a browser agent's change reloads while a load is out;
+// only the newest may write, or the previous workspace's list replaces it.
+let loadSeq = 0;
+
 async function loadSkills({ quiet = false } = {}) {
+  const mine = ++loadSeq;
   if (!quiet) loading.value = true;
   error.value = null;
   try {
     const res = props.workspaceId ? await searchWorkspaceSkills(props.workspaceId) : await searchSkills();
-    skills.value = res.skills || [];
+    if (mine === loadSeq) skills.value = res.skills || [];
   } catch (err) {
-    error.value = err;
+    if (mine === loadSeq) error.value = err;
   } finally {
-    loading.value = false;
+    if (mine === loadSeq) loading.value = false;
   }
 }
 

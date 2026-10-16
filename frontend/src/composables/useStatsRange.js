@@ -141,18 +141,25 @@ export function useStatsRange({ fetchStats, onError }) {
   const customFrom = ref('');
   const customTo = ref('');
 
+  // A range or workspace switch starts a load while another is in flight; only
+  // the newest may write, or a slow older answer replaces the current one.
+  let seq = 0;
+
   async function load() {
+    const mine = ++seq;
     loading.value = true;
     try {
       const { from, to } = customWindowFor(activeRange.value, customFrom.value, customTo.value);
-      stats.value = await fetchStats(activeRange.value, from, to);
+      const res = await fetchStats(activeRange.value, from, to);
+      if (mine === seq) stats.value = res;
     } catch (err) {
+      if (mine !== seq) return;
       // The panels render nothing rather than the previous range's numbers,
       // which would otherwise sit there looking like the answer.
       stats.value = null;
       (onError ?? ((e) => console.error('Failed to load stats:', e)))(err);
     } finally {
-      loading.value = false;
+      if (mine === seq) loading.value = false;
     }
   }
 
