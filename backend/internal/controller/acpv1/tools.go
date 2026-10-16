@@ -37,16 +37,28 @@ var (
 // tool the workspace actually offers. A server name alone never grants
 // anything. name is the call's structured name, read only by server and tool:
 // the legacy pattern matches anywhere in a string, so it stays on the title.
+// A name that says nothing of AgentRQ, and is not one of its tools, is final:
+// a title cannot make another tool ours.
 func workspaceTool(title, name string, offered map[string]struct{}) (tool string, ok bool) {
-	if tool, ok, _ := namedWorkspaceTool(name, offered); ok {
-		return tool, true
+	if name = strings.TrimSpace(name); name != "" {
+		tool, ok, named := namedWorkspaceTool(name, offered)
+		if ok || named {
+			return tool, ok
+		}
+		_, bareOffered := offered[name]
+		if !bareOffered && !strings.Contains(strings.ToLower(name), "agentrq") {
+			return "", false
+		}
 	}
 	tool, ok, named := namedWorkspaceTool(title, offered)
 	if ok || named {
 		return tool, ok
 	}
 	if legacyAgentrqTool.MatchString(title) {
-		return firstToken(title), true
+		tool = firstToken(strings.TrimSpace(title))
+		if _, offeredTool := offered[tool]; offeredTool {
+			return tool, true
+		}
 	}
 	return "", false
 }
