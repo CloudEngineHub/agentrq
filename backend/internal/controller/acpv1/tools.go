@@ -34,8 +34,27 @@ var (
 
 // workspaceTool reports which of the workspace's own tools a call is, if it
 // is one. Both halves must check out: a server named like AgentRQ's, and a
-// tool the workspace actually offers. The name alone never grants anything.
-func workspaceTool(title string, offered map[string]struct{}) (tool string, ok bool) {
+// tool the workspace actually offers. A server name alone never grants
+// anything. name is the call's structured name, read only by server and tool:
+// the legacy pattern matches anywhere in a string, so it stays on the title.
+func workspaceTool(title, name string, offered map[string]struct{}) (tool string, ok bool) {
+	if tool, ok, _ := namedWorkspaceTool(name, offered); ok {
+		return tool, true
+	}
+	tool, ok, named := namedWorkspaceTool(title, offered)
+	if ok || named {
+		return tool, ok
+	}
+	if legacyAgentrqTool.MatchString(title) {
+		return firstToken(title), true
+	}
+	return "", false
+}
+
+// namedWorkspaceTool reads a call named by server and tool. named reports a
+// title that names its two halves outright: its answer is final, and the
+// legacy pattern never gets a second look at it.
+func namedWorkspaceTool(title string, offered map[string]struct{}) (tool string, ok, named bool) {
 	ours := func(server, tool string) bool {
 		if !strings.EqualFold(server, mcpServerName) && !agentrqServer.MatchString(server) {
 			return false
@@ -44,18 +63,18 @@ func workspaceTool(title string, offered map[string]struct{}) (tool string, ok b
 		return offeredTool
 	}
 	// A title that names its two halves outright is read as it is written.
-	named := func(server, tool string) (string, bool) {
+	read := func(server, tool string) (string, bool, bool) {
 		if ours(server, tool) {
-			return tool, true
+			return tool, true, true
 		}
-		return "", false
+		return "", false, true
 	}
 	if m := attributedCall.FindStringSubmatch(title); m != nil {
-		return named(m[2], m[1])
+		return read(m[2], m[1])
 	}
 	for _, re := range qualifiedCalls {
 		if m := re.FindStringSubmatch(title); m != nil {
-			return named(m[1], m[2])
+			return read(m[1], m[2])
 		}
 	}
 	trimmed := strings.TrimSpace(title)
@@ -63,14 +82,11 @@ func workspaceTool(title string, offered map[string]struct{}) (tool string, ok b
 		for _, loc := range nameSeparator.FindAllStringIndex(trimmed, -1) {
 			server, tool := trimmed[:loc[0]], trimmed[loc[1]:]
 			if server != "" && tool != "" && ours(server, tool) {
-				return tool, true
+				return tool, true, false
 			}
 		}
 	}
-	if legacyAgentrqTool.MatchString(title) {
-		return firstToken(title), true
-	}
-	return "", false
+	return "", false, false
 }
 
 // firstToken is the title up to its first space or bracket: how the gateway
