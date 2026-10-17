@@ -267,23 +267,21 @@ func TestKindsListsWhatWillRun(t *testing.T) {
 	}
 }
 
-// A native launch runs the same latest gateway, with --acp-version.
+// ACP v1 is the gateway's only mode, so blank and "1" pass no flag.
 func TestTheGatewayStartsInNativeACPMode(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		p    Params
 		want string
 	}{
-		{"classic stays classic", Params{Agent: "codex-acp"},
+		{"blank is v1", Params{Agent: "codex-acp"},
 			"npx -y @agentrq/acp-gateway@latest --agent codex-acp"},
-		{"native v1 passes the flag", Params{Agent: "codex-acp", ACPVersion: "1", Model: "gpt-5"},
-			"npx -y @agentrq/acp-gateway@latest --agent codex-acp --acp-version 1 --model gpt-5"},
-		{"native v2 is accepted", Params{Agent: "codex-acp", ACPVersion: "2"},
-			"npx -y @agentrq/acp-gateway@latest --agent codex-acp --acp-version 2"},
-		{"native passes the effort", Params{Agent: "claude-acp", ACPVersion: "1", Model: "opus", Effort: "high"},
-			"npx -y @agentrq/acp-gateway@latest --agent claude-acp --acp-version 1 --model opus --effort high"},
-		{"classic leaves the effort out", Params{Agent: "claude-acp", Effort: "high"},
-			"npx -y @agentrq/acp-gateway@latest --agent claude-acp"},
+		{"v1 passes no flag", Params{Agent: "codex-acp", ACPVersion: "1", Model: "gpt-5"},
+			"npx -y @agentrq/acp-gateway@latest --agent codex-acp --model gpt-5"},
+		{"v1 passes the effort", Params{Agent: "claude-acp", ACPVersion: "1", Model: "opus", Effort: "high"},
+			"npx -y @agentrq/acp-gateway@latest --agent claude-acp --model opus --effort high"},
+		{"blank passes the effort too", Params{Agent: "claude-acp", Effort: "high"},
+			"npx -y @agentrq/acp-gateway@latest --agent claude-acp --effort high"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := Resolve(KindACPGateway, tc.p)
@@ -305,6 +303,7 @@ func TestANativeACPVersionIsRefusedWhereItMeansNothing(t *testing.T) {
 		kind Kind
 		p    Params
 	}{
+		{"v2 is refused", KindACPGateway, Params{Agent: "a", ACPVersion: "2"}},
 		{"any other version is refused", KindACPGateway, Params{Agent: "a", ACPVersion: "3"}},
 		{"a flag is refused", KindACPGateway, Params{Agent: "a", ACPVersion: "--1"}},
 		{"claude-code ignores nothing silently", KindClaudeCode, Params{Workspace: "w", ServerName: "s", ACPVersion: "1"}},

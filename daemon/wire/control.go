@@ -95,9 +95,8 @@ const CapabilityClaudeOptions = "claudeOptions"
 // claude-code. An older one drops it and starts the default window.
 const CapabilityAutocompact = "autocompact"
 
-// CapabilityACPVersion is a daemon that passes [StartSession.ACPVersion] to
-// acp-gateway as --acp-version. Without it the field would be dropped and the
-// gateway would start in classic mode while the panel said native.
+// CapabilityACPVersion is a daemon that starts acp-gateway in ACP v1 only.
+// An older one starts the gateway in the MCP mode the server no longer serves.
 const CapabilityACPVersion = "acpVersion"
 
 // CapabilityRestart is a daemon that honours [OpRestart], and CapabilityUpdate
@@ -300,8 +299,8 @@ type StartSession struct {
 	// publishes no checksum for ([AcpAgent.Unverified]), which the person
 	// launching it confirmed.
 	AllowUnverified bool `json:"allowUnverified,omitempty"`
-	// ACPVersion starts acp-gateway in native mode: "1" or "2". Blank is the
-	// classic gateway. Needs [CapabilityACPVersion].
+	// ACPVersion is the ACP version acp-gateway runs: "1", the only one, or
+	// blank for it. Needs [CapabilityACPVersion].
 	ACPVersion string `json:"acpVersion,omitempty"`
 
 	// Fork runs this session in a folder of its own, made from Dir, for a
