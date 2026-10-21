@@ -7,6 +7,7 @@ package api
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,17 +65,20 @@ func (l *loginAttempts) allow(key string, now time.Time, window time.Duration) (
 	return true, 0
 }
 
-// clientIP names the client the way the request rate limiter does: the first
-// X-Forwarded-For entry, then X-Real-IP, then the connection's own address.
+// clientIP names the client the sign-in throttle counts tries for.
 func clientIP(c *fiber.Ctx) string {
-	if xff := c.Get(fiber.HeaderXForwardedFor); xff != "" {
-		first, _, _ := strings.Cut(xff, ",")
-		return strings.TrimSpace(first)
+	return proxiedClient(c.Context().RemoteIP(), c.Get("X-Real-IP"))
+}
+
+// proxiedClient believes X-Real-IP only from a proxy on a loopback or private
+// address, which sets it itself; from anyone else it is whatever the client
+// sent. X-Forwarded-For is never read: the client writes its first entries,
+// and trusting them gave every try a fresh key.
+func proxiedClient(peer net.IP, realIP string) string {
+	if realIP != "" && (peer.IsLoopback() || peer.IsPrivate()) {
+		return realIP
 	}
-	if xri := c.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	return c.IP()
+	return peer.String()
 }
 
 // registerAdminRoutes adds the operator's routes, apart from the users' API:
