@@ -98,14 +98,14 @@ export function mapEventToNotification(event, { mutedWorkspaces = [], workspaceN
 
   const task = event.payload
   const workspace = workspaceName(task.workspaceId) || 'AgentRQ'
-  const workspaceRoute = `/workspaces/${task.workspaceId}`
+  const taskRoute = `/workspaces/${task.workspaceId}/tasks/${task.id}`
 
   switch (event.type) {
     case 'task.created':
       return {
         title: `New task: ${truncate(task.title, 60)}`,
         body: workspace,
-        route: workspaceRoute,
+        route: taskRoute,
         tag: `task-create-${task.id}`,
       }
 
@@ -114,7 +114,7 @@ export function mapEventToNotification(event, { mutedWorkspaces = [], workspaceN
       return {
         title: `Task ${String(task.status ?? '').toUpperCase()}: ${truncate(task.title, 50)}`,
         body: workspace,
-        route: workspaceRoute,
+        route: taskRoute,
         // Same reasoning as the reply below: when this event is the other half
         // of an agent's reply, the message is what both are about.
         tag: lastMessageId(task) || `task-status-${task.id}`,
@@ -133,7 +133,7 @@ export function mapEventToNotification(event, { mutedWorkspaces = [], workspaceN
       return {
         title: `Reply on: ${truncate(task.title, 55)}`,
         body: workspace,
-        route: `${workspaceRoute}/tasks/${task.id}`,
+        route: taskRoute,
         tag: lastMessageId(task) || `reply-${task.id}`,
       }
   }
