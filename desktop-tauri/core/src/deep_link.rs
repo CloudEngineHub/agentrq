@@ -43,6 +43,11 @@ pub fn parse_deep_link(url: &str, scheme: &str) -> Option<String> {
     // `agentrq://workspaces/abc` parses with host `workspaces` and path `/abc`,
     // while `agentrq:///workspaces/abc` puts it all in the path. Both turn up in
     // the wild, so both are accepted.
+    // JS builds `raw` from `host`, which keeps `:port`, so a link with a port
+    // never matches a section.
+    if parsed.port().is_some() {
+        return None;
+    }
     let raw = format!("{}{}", parsed.host_str().unwrap_or(""), parsed.path());
     let segments: Vec<String> = raw
         .split('/')
@@ -88,6 +93,11 @@ mod tests {
 
     fn parse(url: &str) -> Option<String> {
         parse_deep_link(url, DEEP_LINK_SCHEME)
+    }
+
+    #[test]
+    fn rejects_a_link_whose_host_carries_a_port() {
+        assert_eq!(parse("agentrq://workspaces:8080/abc"), None);
     }
 
     #[test]

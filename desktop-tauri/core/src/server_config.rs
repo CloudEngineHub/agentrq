@@ -558,6 +558,7 @@ mod tests {
 
     // resolveServerUrl
 
+    // JS case: `falls back to localhost when nothing is configured`.
     #[test]
     fn falls_back_to_the_default_when_nothing_is_configured() {
         assert_eq!(resolve_server_url(None, ""), DEFAULT_SERVER_URL);
@@ -1086,8 +1087,13 @@ mod tests {
 
     #[test]
     fn accepts_a_server_that_advertises_only_github_login() {
-        let probe = FakeProbe::answering(200, r#"{"githubLoginEnabled":true}"#);
-        assert!(validate_server_url("example.com", &probe).is_ok());
+        let body = r#"{"githubLoginEnabled":true}"#;
+        let probe = FakeProbe::answering(200, body);
+
+        let result = validate_server_url("example.com", &probe).unwrap();
+
+        assert_eq!(result.url, "http://example.com");
+        assert_eq!(result.config, serde_json::from_str::<Value>(body).unwrap());
     }
 
     #[test]
