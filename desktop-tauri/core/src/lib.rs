@@ -17,6 +17,7 @@ pub mod install_log;
 pub mod links;
 pub mod notifications;
 pub mod profiles;
+pub mod protocol;
 pub mod server_config;
 pub mod side_panel;
 pub mod sse;
