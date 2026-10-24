@@ -13,5 +13,6 @@ pub mod identity;
 pub mod links;
 pub mod profiles;
 pub mod server_config;
+pub mod side_panel;
 pub mod uri;
 pub mod window_state;
