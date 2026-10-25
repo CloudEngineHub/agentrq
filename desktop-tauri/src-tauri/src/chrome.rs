@@ -234,7 +234,9 @@ pub fn open_main_window<R: Runtime>(app: &AppHandle<R>, profile: &str) -> tauri:
             false
         });
     // CI's harness (`test/e2e/theme-seed.js`): a script for the page to run
-    // first. Whoever sets the variable already controls this process.
+    // first. Only a debug build or the `e2e` feature reads it: a release
+    // would run whatever a launcher's environment holds in the app's webview.
+    #[cfg(any(debug_assertions, feature = "e2e"))]
     if let Ok(script) = std::env::var("AGENTRQ_E2E_INIT_SCRIPT") {
         builder = builder.initialization_script(script);
     }
@@ -274,6 +276,8 @@ pub fn open_main_window<R: Runtime>(app: &AppHandle<R>, profile: &str) -> tauri:
     repaint(app, theme.as_deref());
     wire_state(app, &window, normal);
     watch_crashes(app, &window);
+    #[cfg(windows)]
+    switch_browser_accelerators_off(&window);
     Ok(())
 }
 
@@ -325,6 +329,25 @@ fn watch_crashes<R: Runtime>(app: &AppHandle<R>, window: &WebviewWindow<R>) {
                     view.reload();
                 }
             });
+    });
+}
+
+/// WebView2's own Ctrl+R, Ctrl+Shift+R and Ctrl+Shift+I run as the key's default
+/// action, beside the page's dispatch of the same menu keys (`core::menu_keys`).
+#[cfg(windows)]
+fn switch_browser_accelerators_off<R: Runtime>(window: &WebviewWindow<R>) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows::core::Interface;
+    let _ = window.with_webview(|webview| unsafe {
+        let Ok(core) = webview.controller().CoreWebView2() else {
+            return;
+        };
+        if let Ok(settings) = core
+            .Settings()
+            .and_then(|s| s.cast::<ICoreWebView2Settings3>())
+        {
+            let _ = settings.SetAreBrowserAcceleratorKeysEnabled(false);
+        }
     });
 }
 

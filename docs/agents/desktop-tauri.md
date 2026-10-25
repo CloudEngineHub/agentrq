@@ -88,9 +88,14 @@
 - **Off macOS the menu has no native accelerators.** GTK runs a window's accelerators
   before the page, so Ctrl+W closed the app under a terminal that wanted it, and Ctrl+R,
   Z, Q, M, 0 and - went the same way. The label keeps a hint; the bridge runs the key
-  from a bubbling `keydown` that is not `defaultPrevented`, against the table in
-  `core::menu_keys` (Electron's rule). Windows is treated alike, unmeasured. A guest
-  page's keys (WP7b's side panel) never reach it, so the guest must forward them.
+  from a bubbling `keydown` that is not `defaultPrevented`, checked a task later so a
+  page listener on `window` can cancel it, against the table in `core::menu_keys`
+  (Electron's rule). The table leaves out undo/redo, which the webview does itself, and
+  says which keys repeat (zoom only); `menu_run` takes only an id that has a key here and
+  now. A key's physical place is used only for a letter of a non-Latin script, never for
+  `ß`, `¡`, `´` or a dead key. WebView2's own accelerator keys are switched off, or Ctrl+R
+  would reload twice. Windows is otherwise unmeasured. A guest page's keys (WP7b's side
+  panel) never reach it, so the guest must forward them.
 - **A command's arguments are required unless the page may leave them out.** An `Option`
   turns a key the bridge misspelled (`fileUrl` for `rawUrl`) into `None`, silently.
   The parity test checks every implemented command's parameter names against the bridge.
@@ -98,4 +103,5 @@
   window quits and the Dock's reopen never runs. Cmd+Q and Windows' Exit raise only
   `Exit`, so the state is saved there too.
 - **`AGENTRQ_E2E_INIT_SCRIPT` is CI's**: a script the main webview runs first, which seeds
-  the theme until WP4 lets the renderer reach the app (`test/e2e/`).
+  the theme until WP4 lets the renderer reach the app (`test/e2e/`). Only a debug build or
+  `--features e2e` reads it; a release must not run an environment's script in the webview.

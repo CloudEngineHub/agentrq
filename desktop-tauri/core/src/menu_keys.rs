@@ -21,11 +21,15 @@ pub fn native_accelerators(platform: Platform) -> bool {
 }
 
 /// One key that runs one action, as `KeyboardEvent` spells it: `key` is
-/// lower case, and every modifier is exact.
+/// lower case, and every modifier is exact. `code` is the physical key, for a
+/// layout whose `key` is not Latin (Ctrl+W on a Cyrillic one types `ц`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyBinding {
     pub action: ActionId,
     pub key: String,
+    pub code: Option<String>,
+    /// Whether a held key keeps running the action; only zoom does.
+    pub repeat: bool,
     pub ctrl: bool,
     pub shift: bool,
     pub alt: bool,
@@ -38,12 +42,69 @@ impl KeyBinding {
         serde_json::json!({
             "id": self.action.as_str(),
             "key": self.key,
+            "code": self.code,
+            "repeat": self.repeat,
             "ctrl": self.ctrl,
             "shift": self.shift,
             "alt": self.alt,
             "meta": self.meta,
         })
     }
+}
+
+/// The actions that run again while their key is held.
+pub fn repeats(action: ActionId) -> bool {
+    matches!(action, ActionId::ZoomIn | ActionId::ZoomOut)
+}
+
+/// The webview undoes and redoes on its own keys, and a key the page left
+/// unhandled can no longer be cancelled by then: running them too would undo
+/// twice. They are never bound, so `menu_run` refuses them as well.
+pub fn webview_does(action: ActionId) -> bool {
+    matches!(action, ActionId::Undo | ActionId::Redo)
+}
+
+/// WebView2 runs its own browser accelerators (Ctrl+R, Ctrl+Shift+I...) as the
+/// key's default action, which the page's deferred check can no longer cancel:
+/// the key would act twice. They are switched off, and the page's table is the
+/// only one.
+pub fn disables_browser_accelerators(platform: Platform) -> bool {
+    platform == Platform::Windows
+}
+
+/// `KeyboardEvent.code` of a key the menu binds, `None` for one with no fixed
+/// place. `+` is Shift on the `=` key, as GTK reports Ctrl+Shift+=.
+pub fn physical_code(key: &str) -> Option<String> {
+    let mut chars = key.chars();
+    let first = chars.next()?;
+    if chars.next().is_some() {
+        let digits = key.strip_prefix('f')?;
+        let number = digits.parse::<u8>().ok()?;
+        let plain = digits.bytes().all(|b| b.is_ascii_digit()) && !digits.starts_with('0');
+        return (plain && number <= 24).then(|| key.to_uppercase());
+    }
+    match first {
+        'a'..='z' => Some(format!("Key{}", first.to_ascii_uppercase())),
+        '0'..='9' => Some(format!("Digit{first}")),
+        '-' => Some("Minus".to_string()),
+        '=' | '+' => Some("Equal".to_string()),
+        '\\' => Some("Backslash".to_string()),
+        _ => None,
+    }
+}
+
+/// The action an id names, if the page may run it here: an id with a key on
+/// this platform, in this state. A disabled item, one another platform draws,
+/// and every action on macOS (the menu bar's) are refused.
+pub fn dispatchable(options: MenuOptions<'_>, id: &str) -> Option<ActionId> {
+    let action = ActionId::parse(id)?;
+    if webview_does(action) {
+        return None;
+    }
+    key_bindings(options)
+        .iter()
+        .any(|binding| binding.action == action)
+        .then_some(action)
 }
 
 /// An accelerator, taken apart. `CmdOrCtrl` is Ctrl here: only the platforms
@@ -102,7 +163,10 @@ pub fn key_bindings(options: MenuOptions<'_>) -> Vec<KeyBinding> {
         actions(&submenu.items, &mut items);
     }
     let mut bindings = Vec::new();
-    for item in items.into_iter().filter(|item| item.enabled) {
+    for item in items
+        .into_iter()
+        .filter(|item| item.enabled && !webview_does(item.id))
+    {
         let Some(accelerator) = item.accelerator else {
             continue;
         };
@@ -110,6 +174,8 @@ pub fn key_bindings(options: MenuOptions<'_>) -> Vec<KeyBinding> {
         let binding = |key: &str, shift: bool| KeyBinding {
             action: item.id,
             key: key.to_lowercase(),
+            code: physical_code(&key.to_lowercase()),
+            repeat: repeats(item.id),
             ctrl: chord.ctrl,
             shift,
             alt: chord.alt,
@@ -142,7 +208,13 @@ pub fn item_parts(platform: Platform, item: &ActionItem) -> (String, Option<&'st
                 }
             }
             hint.push_str(&chord.key.to_uppercase());
-            (format!("{}\t{hint}", item.label), None)
+            // Win32 right-aligns after a tab; GTK draws it as a short gap.
+            let text = if platform == Platform::Windows {
+                format!("{}\t{hint}", item.label)
+            } else {
+                format!("{} ({hint})", item.label)
+            };
+            (text, None)
         }
         accelerator => (item.label.to_string(), accelerator),
     }
@@ -182,8 +254,6 @@ mod tests {
                 ("w", false, ActionId::Close),
                 ("r", false, ActionId::Reload),
                 ("r", true, ActionId::ForceReload),
-                ("z", false, ActionId::Undo),
-                ("z", true, ActionId::Redo),
                 ("q", false, ActionId::Quit),
                 ("m", false, ActionId::Minimize),
                 ("0", false, ActionId::ResetZoom),
@@ -237,13 +307,13 @@ mod tests {
     fn a_binding_reads_as_json() {
         let binding = key_bindings(options(Platform::Linux))
             .into_iter()
-            .find(|b| b.action == ActionId::Redo)
+            .find(|b| b.action == ActionId::ZoomOut)
             .unwrap();
         assert_eq!(
             binding.to_json(),
             serde_json::json!({
-                "id": "redo", "key": "z",
-                "ctrl": true, "shift": true, "alt": false, "meta": false,
+                "id": "zoom-out", "key": "-", "code": "Minus", "repeat": true,
+                "ctrl": true, "shift": false, "alt": false, "meta": false,
             })
         );
     }
@@ -259,21 +329,95 @@ mod tests {
 
     #[test]
     fn off_macos_the_accelerator_is_only_a_hint_in_the_label() {
-        for (accelerator, label) in [
-            ("CmdOrCtrl+R", "Reload\tCtrl+R"),
-            ("Shift+CmdOrCtrl+R", "Reload\tCtrl+Shift+R"),
-            ("Ctrl+Shift+I", "Reload\tCtrl+Shift+I"),
-            ("Alt+Cmd+I", "Reload\tAlt+Super+I"),
-            ("F11", "Reload\tF11"),
-            ("CmdOrCtrl+-", "Reload\tCtrl+-"),
+        for (accelerator, hint) in [
+            ("CmdOrCtrl+R", "Ctrl+R"),
+            ("Shift+CmdOrCtrl+R", "Ctrl+Shift+R"),
+            ("Ctrl+Shift+I", "Ctrl+Shift+I"),
+            ("Alt+Cmd+I", "Alt+Super+I"),
+            ("F11", "F11"),
+            ("CmdOrCtrl+-", "Ctrl+-"),
         ] {
+            // GTK draws a tab as a short gap, so Linux gets a parenthesis.
             let (text, native) = item_parts(Platform::Linux, &item(Some(accelerator)));
-            assert_eq!((text, native), (label.to_string(), None));
+            assert_eq!((text, native), (format!("Reload ({hint})"), None));
+            // Win32 right-aligns what follows a tab.
+            let (text, native) = item_parts(Platform::Windows, &item(Some(accelerator)));
+            assert_eq!((text, native), (format!("Reload\t{hint}"), None));
         }
         assert_eq!(
             item_parts(Platform::Windows, &item(None)),
             ("Reload".to_string(), None)
         );
+    }
+
+    #[test]
+    fn a_key_has_a_physical_place_unless_it_is_not_a_fixed_one() {
+        for (key, code) in [
+            ("w", "KeyW"),
+            ("z", "KeyZ"),
+            ("0", "Digit0"),
+            ("-", "Minus"),
+            ("=", "Equal"),
+            ("+", "Equal"),
+            ("\\", "Backslash"),
+            ("f11", "F11"),
+            ("f1", "F1"),
+            ("f24", "F24"),
+        ] {
+            assert_eq!(physical_code(key).as_deref(), Some(code), "{key}");
+        }
+        for key in [
+            "", "ц", "enter", ",", "foo", "fn", "f0", "f25", "f01", "f+1", "f1x",
+        ] {
+            assert_eq!(physical_code(key), None, "{key}");
+        }
+    }
+
+    #[test]
+    fn every_binding_carries_the_physical_key_for_a_non_latin_layout() {
+        let bindings = key_bindings(options(Platform::Linux));
+        assert!(bindings.iter().all(|b| b.code.is_some()));
+        let close = bindings.iter().find(|b| b.action == ActionId::Close);
+        assert_eq!(close.unwrap().code.as_deref(), Some("KeyW"));
+    }
+
+    #[test]
+    fn only_an_action_with_a_key_here_is_dispatchable() {
+        let linux = options(Platform::Linux);
+        assert_eq!(dispatchable(linux, "close"), Some(ActionId::Close));
+        assert_eq!(dispatchable(linux, "zoom-in"), Some(ActionId::ZoomIn));
+        // Not an action; an action with no key; a disabled one; macOS's.
+        assert_eq!(dispatchable(linux, "nope"), None);
+        assert_eq!(dispatchable(linux, "log-out"), None);
+        // The webview's own keys: a bound-looking id still never runs.
+        assert_eq!(dispatchable(linux, "undo"), None);
+        assert_eq!(dispatchable(linux, "redo"), None);
+        assert_eq!(dispatchable(linux, "switch-server"), None);
+        let off = MenuOptions {
+            can_toggle_side_panel: false,
+            can_check_for_updates: false,
+            debug_build: false,
+            ..linux
+        };
+        assert_eq!(dispatchable(off, "toggle-side-panel"), None);
+        assert_eq!(dispatchable(off, "toggle-dev-tools"), None);
+        assert_eq!(dispatchable(options(Platform::MacOs), "close"), None);
+    }
+
+    #[test]
+    fn undo_and_redo_are_left_to_the_webview_and_only_zoom_repeats() {
+        let all = key_bindings(options(Platform::Linux));
+        assert!(!all.iter().any(|b| webview_does(b.action)));
+        assert!(all.iter().all(|b| b.repeat == repeats(b.action)));
+        assert!(repeats(ActionId::ZoomIn) && repeats(ActionId::ZoomOut));
+        assert!(!repeats(ActionId::Reload) && !repeats(ActionId::Close));
+    }
+
+    #[test]
+    fn only_windows_switches_the_browser_accelerators_off() {
+        assert!(disables_browser_accelerators(Platform::Windows));
+        assert!(!disables_browser_accelerators(Platform::Linux));
+        assert!(!disables_browser_accelerators(Platform::MacOs));
     }
 
     #[test]

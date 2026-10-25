@@ -82,19 +82,37 @@ export function installMenuKeys(target, platform) {
     .catch((err) => console.error('window.agentrq: no menu keys', err))
   target.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.isComposing) return
-    const key = String(e.key).toLowerCase()
-    const hit = table.find(
-      (b) =>
-        b.key === key &&
-        b.ctrl === e.ctrlKey &&
-        b.shift === e.shiftKey &&
-        b.alt === e.altKey &&
-        b.meta === e.metaKey
-    )
-    if (!hit) return
-    e.preventDefault()
-    invoke('menu_run', { id: hit.id }).catch((err) => console.error('window.agentrq: menu key', err))
+    const hit = table.find((b) => matches(b, e))
+    // A held key repeats; only the bindings that say so are meant to.
+    if (!hit || (e.repeat && !hit.repeat)) return
+    // This listener is on `window`, the last stop of the event, yet a page
+    // listener on `window` registered after it runs after it. A task later
+    // every listener has run, and `defaultPrevented` stays set on the event.
+    setTimeout(() => {
+      if (e.defaultPrevented) return
+      invoke('menu_run', { id: hit.id }).catch((err) =>
+        console.error('window.agentrq: menu key', err)
+      )
+    }, 0)
   })
+}
+
+/** A letter of a script other than Latin: Cyrillic, Greek, Hebrew, Arabic, CJK... */
+const NON_LATIN_LETTER = /^(?!\p{Script=Latin})\p{L}$/u
+
+/**
+ * A key the menu binds, by what it types, or by where it is when the layout
+ * types a letter of another script (`ц` for Ctrl+W on a Cyrillic one). Never by
+ * place alone: on AZERTY the key that is `W` on QWERTY types `Z`, and `ß`, `¡`,
+ * `´` and dead keys are Latin layouts' own punctuation, not a zoom.
+ */
+function matches(b, e) {
+  if (b.ctrl !== e.ctrlKey || b.shift !== e.shiftKey || b.alt !== e.altKey || b.meta !== e.metaKey) {
+    return false
+  }
+  const key = String(e.key).toLowerCase()
+  if (/^[\x21-\x7e]$|^f\d+$/.test(key)) return b.key === key
+  return NON_LATIN_LETTER.test(key) && b.code != null && b.code === e.code
 }
 
 export function createBridge(userAgent) {
