@@ -13,7 +13,9 @@ mod chrome_state;
 mod commands;
 mod cookie_jar;
 mod event_source;
+mod events;
 mod network;
+mod notify;
 mod panel_scheme;
 mod panic_log;
 mod profiles;
@@ -41,10 +43,14 @@ use tauri::{
     AppHandle, Emitter, Manager, RunEvent, Runtime, Url, Webview, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 
+use agentrq_desktop_core::notifications::Notification;
 use event_source::Streams;
+use events::EventStream;
 use network::Network;
+use notify::{Desk, Feed, Notifier};
 use profiles::{app_origin, Profiles, Shell};
 use scheme::{Assets, Scheme, MAIN_WEBVIEW};
 use sign_in::CookieWebview;
@@ -402,6 +408,47 @@ impl<R: Runtime> Shell for Windows<R> {
     }
 }
 
+/// What notify.rs asks of the app. The Notifier owns the unread count; the
+/// shell shows it, and holds a route until the main webview can take it.
+struct TauriDesk<R: Runtime>(AppHandle<R>);
+
+impl<R: Runtime> TauriDesk<R> {
+    fn shell(&self) -> Option<tauri::State<'_, shell::ShellState<R>>> {
+        self.0.try_state::<shell::ShellState<R>>()
+    }
+}
+
+impl<R: Runtime> Desk for TauriDesk<R> {
+    fn show(&self, notification: &Notification) -> bool {
+        self.0
+            .notification()
+            .builder()
+            .title(&notification.title)
+            .body(&notification.body)
+            .extra(notify::ROUTE_KEY, &notification.route)
+            .show()
+            .is_ok()
+    }
+
+    fn navigate(&self, route: &str) {
+        if let Some(shell) = self.shell() {
+            shell.navigate(&self.0, route);
+        }
+    }
+
+    fn set_unread(&self, count: u32) {
+        if let Some(shell) = self.shell() {
+            shell.set_unread_count(&self.0, count.into());
+        }
+    }
+
+    fn touch_workspace(&self, id: &str, name: &str) {
+        if let Some(shell) = self.shell() {
+            shell.touch_recent_workspace(&self.0, id, Some(name));
+        }
+    }
+}
+
 /// A removed profile's store that a quit kept from being deleted, deleted now.
 #[cfg(target_os = "macos")]
 fn sweep_data_stores<R: Runtime>(app: &AppHandle<R>) {
@@ -520,6 +567,7 @@ async fn finish_sign_in<R: Runtime>(window: WebviewWindow<R>, flow: Flow, id: St
 pub fn run() {
     let app = chrome::plugins(tauri::Builder::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .register_asynchronous_uri_scheme_protocol("app", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let webview = ctx.webview_label().to_string();
@@ -564,14 +612,32 @@ pub fn run() {
                 profiles::first_profile(&data_dir, lock.as_deref()),
             ));
             let handle = app.handle().clone();
+            let notifier = Arc::new(Notifier::new(
+                network.clone(),
+                Arc::new(TauriDesk(handle.clone())),
+            ));
+            let feed = Arc::new(Feed {
+                stream: EventStream::spawn(network.clone(), notifier.clone()),
+                notifier: notifier.clone(),
+            });
             let profiles = Arc::new(Profiles::new(
                 data_dir.clone(),
                 lock,
                 network.clone(),
                 Box::new(Windows(handle.clone())),
+                feed,
             ));
             profiles.sweep();
+            profiles.watch();
             app.manage(profiles);
+            let clicked = notifier.clone();
+            handle.notification().on_action(move |action| {
+                let extra = action.notification().map(|n| n.extra());
+                if let Some(route) = notify::tapped(action.action_id(), extra) {
+                    clicked.clicked(&route);
+                }
+            })?;
+            app.manage(notifier.clone());
             app.manage(Reopening::default());
             #[cfg(target_os = "macos")]
             sweep_data_stores(&handle);
@@ -586,7 +652,9 @@ pub fn run() {
             });
             app.manage(network.clone());
             app.manage(Streams::default());
-            app.manage(Scheme::new(network, assets, &dev_url(&handle)));
+            let scheme = Scheme::new(network, assets, &dev_url(&handle))
+                .on_proxied(Box::new(move |method, path| notifier.proxied(method, path)));
+            app.manage(scheme);
             init_updater(&handle);
             let side_panel = side_panel::SidePanelState::new(&handle, Box::new(open_link));
             app.manage(side_panel.scheme());
