@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 const tauri = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn(), getTauriVersion: vi.fn() }))
-vi.mock('@tauri-apps/api/core', () => ({ invoke: tauri.invoke }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: tauri.invoke, Channel: class {} }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: tauri.listen }))
 vi.mock('@tauri-apps/api/app', () => ({ getTauriVersion: tauri.getTauriVersion }))
 
@@ -110,7 +110,12 @@ const at = (api, path) => path.split('.').reduce((o, k) => o[k], api)
 let electron
 let agentrq
 beforeAll(async () => {
-  globalThis.window = {}
+  // The bridge wraps fetch and EventSource on the page's window first (net.js).
+  globalThis.window = Object.assign(new EventTarget(), {
+    location: { href: 'app://localhost/' },
+    fetch: () => {},
+    EventSource: class {},
+  })
   tauri.getTauriVersion.mockResolvedValue('2.12.5')
   electron = loadPreload()
   agentrq = (await import('../src/bridge/index.js')).createBridge('Mozilla/5.0 (X11; Linux x86_64)')
@@ -213,11 +218,15 @@ describe('the Rust side serves what the bridge calls', () => {
 
   // The guest preload's, which WP7b gives the `agentrq-ext:` page's own webview.
   const GUEST_ONLY = ['panel_send']
+  // The bridge's own `EventSource` (net.js), which Electron needs no channel for.
+  const BRIDGE_ONLY = ['event_source_close', 'event_source_open']
 
-  it('has one command per channel the preload invokes, plus the guest one', () => {
+  it('has one command per channel the preload invokes, plus the guest one and the bridge\'s own', () => {
     const preload = read('../../desktop/src/preload/index.js')
     const channels = [...preload.matchAll(/invoke\(\s*'(agentrq:[\w:-]+)'/g)].map((m) => commandOf(m[1]))
-    expect(defined).toEqual([...new Set([...channels, ...GUEST_ONLY])].sort())
+    expect(defined).toEqual([...new Set([...channels, ...GUEST_ONLY, ...BRIDGE_ONLY])].sort())
+    const net = read('../src/bridge/net.js')
+    expect([...new Set([...net.matchAll(/invoke\('(\w+)'/g)].map((m) => m[1]))].sort()).toEqual(BRIDGE_ONLY)
   })
 
   it('registers every command in the handler, the manifest and the capability', () => {
@@ -233,7 +242,7 @@ describe('the Rust side serves what the bridge calls', () => {
     }
     const invoked = new Set(tauri.invoke.mock.calls.map(([name]) => name))
     expect([...invoked].filter((name) => !defined.includes(name))).toEqual([])
-    expect(defined.filter((name) => !invoked.has(name))).toEqual(GUEST_ONLY)
+    expect(defined.filter((name) => !invoked.has(name))).toEqual([...BRIDGE_ONLY, ...GUEST_ONLY].sort())
   })
 
   it('grants the main window events and the title-bar drag, and nothing broader', () => {
