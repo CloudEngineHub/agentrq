@@ -7,6 +7,9 @@
 //! only connects them to Tauri, so it is left out of coverage, as
 //! `desktop/src/main/index.js` is.
 
+mod app_menu;
+mod chrome;
+mod chrome_state;
 mod commands;
 mod cookie_jar;
 mod event_source;
@@ -30,13 +33,12 @@ use agentrq_desktop_core::server_config::{
 use agentrq_desktop_core::updater::{
     AutoUpdater, PublishedStatus, StdInstallerSpawner, Updater, UpdaterDeps, UpdaterEvent,
 };
-use tauri::webview::PageLoadEvent;
-use tauri::{AppHandle, Emitter, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Url};
 use tauri_plugin_updater::UpdaterExt;
 
 use event_source::Streams;
 use network::Network;
-use scheme::{Assets, Scheme, MAIN_WEBVIEW};
+use scheme::{Assets, Scheme};
 use vault::{Keychain, KeychainError};
 
 /// The renderer's origin: `app://localhost`, which WebView2 spells
@@ -343,23 +345,8 @@ fn init_updater<R: Runtime>(app: &AppHandle<R>) {
     updater.start();
 }
 
-fn main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    WebviewWindowBuilder::new(app, MAIN_WEBVIEW, WebviewUrl::CustomProtocol(app_url()))
-        // A reload or a navigation leaves the old page's event streams running.
-        .on_page_load(|webview, payload| {
-            if payload.event() == PageLoadEvent::Started {
-                webview.state::<Streams>().close_all();
-            }
-        })
-        .title("AgentRQ Tauri")
-        .inner_size(1280.0, 820.0)
-        .min_inner_size(940.0, 600.0)
-        .build()?;
-    Ok(())
-}
-
 pub fn run() {
-    let app = tauri::Builder::default()
+    let app = chrome::plugins(tauri::Builder::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("app", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -394,13 +381,16 @@ pub fn run() {
             app.manage(Streams::default());
             app.manage(Scheme::new(network, assets, &dev_url(&handle)));
             init_updater(&handle);
-            main_window(&handle)?;
+            app.manage(chrome::Chrome::new(data_dir));
+            chrome::open_main_window(&handle)?;
+            app_menu::install(&handle)?;
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building AgentRQ Tauri");
 
     app.run(|app_handle, event| {
+        chrome::on_run_event(app_handle, &event);
         if let tauri::RunEvent::Exit = event {
             if let Some(installer) = app_handle.try_state::<ExitInstaller>() {
                 (installer.0)();

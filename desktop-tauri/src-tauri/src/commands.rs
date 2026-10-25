@@ -162,30 +162,6 @@ pub fn profiles_switch() -> Result<(), String> {
     todo("profiles.switch", "WP4")
 }
 
-/// `agentrq:files:open`
-#[tauri::command]
-pub fn files_open() -> Result<(), String> {
-    todo("files.open", "WP5")
-}
-
-/// `agentrq:clipboard:write`
-#[tauri::command]
-pub fn clipboard_write() -> Result<(), String> {
-    todo("clipboard.write", "WP5")
-}
-
-/// `agentrq:emoji:show-panel`
-#[tauri::command]
-pub fn emoji_show_panel() -> Result<(), String> {
-    todo("emoji.showPanel", "WP5")
-}
-
-/// `agentrq:dialog:chooseDirectory`
-#[tauri::command]
-pub fn dialog_choose_directory() -> Result<(), String> {
-    todo("dialog.chooseDirectory", "WP5")
-}
-
 /// `agentrq:extensions:authorize`
 #[tauri::command]
 pub fn extensions_authorize() -> Result<(), String> {
@@ -370,30 +346,6 @@ pub fn panel_send() -> Result<(), String> {
     todo("panel.send", "WP7b / WP9")
 }
 
-/// `agentrq:view:fullscreen`
-#[tauri::command]
-pub fn view_fullscreen() -> Result<(), String> {
-    todo("view.toggleFullScreen", "WP5")
-}
-
-/// `agentrq:view:get`
-#[tauri::command]
-pub fn view_get() -> Result<(), String> {
-    todo("view.get", "WP5")
-}
-
-/// `agentrq:view:zoom`
-#[tauri::command]
-pub fn view_zoom() -> Result<(), String> {
-    todo("view.zoom", "WP5")
-}
-
-/// `agentrq:theme:set`
-#[tauri::command]
-pub fn theme_set() -> Result<(), String> {
-    todo("theme.set", "WP5")
-}
-
 /// The invoke handler registering every command above.
 pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static
 {
@@ -412,10 +364,10 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         profiles_remove,
         profiles_rename,
         profiles_switch,
-        files_open,
-        clipboard_write,
-        emoji_show_panel,
-        dialog_choose_directory,
+        crate::chrome::files_open,
+        crate::chrome::clipboard_write,
+        crate::chrome::emoji_show_panel,
+        crate::chrome::dialog_choose_directory,
         extensions_authorize,
         extensions_choose_folder,
         extensions_configure,
@@ -441,10 +393,12 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         side_panel_permission_remove,
         side_panel_permissions,
         panel_send,
-        view_fullscreen,
-        view_get,
-        view_zoom,
-        theme_set,
+        crate::chrome::view_fullscreen,
+        crate::chrome::view_get,
+        crate::chrome::view_zoom,
+        crate::chrome::theme_set,
+        crate::app_menu::menu_key_bindings,
+        crate::app_menu::menu_run,
         event_source_open,
         event_source_close,
     ]
@@ -483,10 +437,6 @@ mod tests {
         ("profiles_remove", "profiles.remove"),
         ("profiles_rename", "profiles.rename"),
         ("profiles_switch", "profiles.switch"),
-        ("files_open", "files.open"),
-        ("clipboard_write", "clipboard.write"),
-        ("emoji_show_panel", "emoji.showPanel"),
-        ("dialog_choose_directory", "dialog.chooseDirectory"),
         ("extensions_authorize", "extensions.authorize"),
         ("extensions_choose_folder", "extensions.chooseFolder"),
         ("extensions_configure", "extensions.configure"),
@@ -511,10 +461,6 @@ mod tests {
         ("side_panel_permission_remove", "sidePanel.removePermission"),
         ("side_panel_permissions", "sidePanel.permissions"),
         ("panel_send", "panel.send"),
-        ("view_fullscreen", "view.toggleFullScreen"),
-        ("view_get", "view.get"),
-        ("view_zoom", "view.zoom"),
-        ("theme_set", "theme.set"),
     ];
 
     /// The commands WP2 has replaced; every other one is still a stub.
@@ -574,7 +520,7 @@ mod tests {
     #[test]
     fn every_command_is_registered_and_the_stubs_answer_todo() {
         let rig = rig();
-        assert_eq!(STUB_COMMANDS.len(), 43, "stub commands answering todo");
+        assert_eq!(STUB_COMMANDS.len(), 35, "stub commands answering todo");
         for (cmd, member) in STUB_COMMANDS.iter().filter(|(cmd, _)| !WP2.contains(cmd)) {
             let err = call(&rig, cmd, serde_json::json!({})).expect_err(cmd);
             let text = err.as_str().unwrap_or_default();

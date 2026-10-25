@@ -57,6 +57,8 @@ const COMMANDS: &[&str] = &[
     "theme_set",
     "event_source_open",
     "event_source_close",
+    "menu_key_bindings",
+    "menu_run",
 ];
 
 fn main() {

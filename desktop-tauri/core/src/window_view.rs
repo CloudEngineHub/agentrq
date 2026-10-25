@@ -57,6 +57,23 @@ pub trait ViewWindow {
     fn set_full_screen(&self, full_screen: bool);
 }
 
+/// A window that can be maximized, for the Window menu's Zoom on Windows and
+/// Linux, where it is a toggle.
+pub trait MaximizeWindow {
+    fn is_maximized(&self) -> bool;
+    fn maximize(&self);
+    fn unmaximize(&self);
+}
+
+/// Maximizes a window that is not, and restores one that is.
+pub fn toggle_maximize(window: &dyn MaximizeWindow) {
+    if window.is_maximized() {
+        window.unmaximize();
+    } else {
+        window.maximize();
+    }
+}
+
 /// JS's `Math.round`, which rounds halves toward +infinity.
 fn round(value: f64) -> f64 {
     (value + 0.5).floor()
@@ -82,6 +99,24 @@ pub fn toggle_full_screen(window: &dyn ViewWindow) -> ViewState {
     ViewState {
         full_screen,
         ..view_state(window)
+    }
+}
+
+impl ZoomDirection {
+    /// What the title bar sends: `in`, `out`, or anything else for a reset.
+    pub fn parse(direction: &str) -> Self {
+        match direction {
+            "in" => Self::In,
+            "out" => Self::Out,
+            _ => Self::Reset,
+        }
+    }
+}
+
+impl ViewState {
+    /// The shape the renderer reads: `{ zoom, fullScreen }`.
+    pub fn to_json(self) -> serde_json::Value {
+        serde_json::json!({ "zoom": self.zoom, "fullScreen": self.full_screen })
     }
 }
 
@@ -193,5 +228,48 @@ mod tests {
         window.full_screen.set(true);
         assert!(!toggle_full_screen(&window).full_screen);
         assert_eq!(window.requested.get(), Some(false));
+    }
+
+    #[test]
+    fn a_direction_is_in_out_or_a_reset() {
+        assert_eq!(ZoomDirection::parse("in"), In);
+        assert_eq!(ZoomDirection::parse("out"), Out);
+        assert_eq!(ZoomDirection::parse("reset"), Reset);
+        assert_eq!(ZoomDirection::parse("sideways"), Reset);
+    }
+
+    #[test]
+    fn the_state_goes_to_the_renderer_in_camel_case() {
+        let state = ViewState {
+            zoom: 125,
+            full_screen: true,
+        };
+        assert_eq!(
+            state.to_json(),
+            serde_json::json!({ "zoom": 125, "fullScreen": true })
+        );
+    }
+
+    struct Maximizable(Cell<bool>);
+
+    impl MaximizeWindow for Maximizable {
+        fn is_maximized(&self) -> bool {
+            self.0.get()
+        }
+        fn maximize(&self) {
+            self.0.set(true);
+        }
+        fn unmaximize(&self) {
+            self.0.set(false);
+        }
+    }
+
+    #[test]
+    fn zoom_maximizes_a_window_and_restores_a_maximized_one() {
+        let window = Maximizable(Cell::new(false));
+        toggle_maximize(&window);
+        assert!(window.is_maximized());
+        toggle_maximize(&window);
+        assert!(!window.is_maximized());
     }
 }

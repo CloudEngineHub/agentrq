@@ -53,3 +53,29 @@
   on macOS 14.
 - **`make stop` must leave the Tauri dev app alone**: it skips any vite under
   `desktop-tauri/`, and `tauri dev` exits with its Vite (port 5175).
+- **Zoom goes through `core::window_view` and `set_zoom`, never a native zoom
+  shortcut.** Tauri cannot read a webview's zoom back, so `ZoomTable` is the only
+  record; a native zoom would leave it, and the title bar's menu, wrong.
+- **Never use `tauri-plugin-window-state`.** Its clamping differs from
+  `core::window_state`. The save is read when the debounce fires, never per
+  resize event: a platform can report the maximized size before the state.
+- **`chrome.rs` and `app_menu.rs` are wiring and outside the coverage gate**, like `lib.rs`; a rule
+  goes in `core/` or `chrome_state.rs` with its test.
+- **The window starts hidden and is shown on the page's first load** (5 s
+  fallback), so a failed load still appears. Showing earlier is the white flash.
+- **A webview process crash reloads the window** (WebKitGTK, WebView2), at most 3
+  times a minute. WKWebView reports none through wry, so macOS cannot.
+- **Off macOS the menu has no native accelerators.** GTK runs a window's accelerators
+  before the page, so Ctrl+W closed the app under a terminal that wanted it, and Ctrl+R,
+  Z, Q, M, 0 and - went the same way. The label keeps a hint; the bridge runs the key
+  from a bubbling `keydown` that is not `defaultPrevented`, against the table in
+  `core::menu_keys` (Electron's rule). Windows is treated alike, unmeasured. A guest
+  page's keys (WP7b's side panel) never reach it, so the guest must forward them.
+- **A command's arguments are required unless the page may leave them out.** An `Option`
+  turns a key the bridge misspelled (`fileUrl` for `rawUrl`) into `None`, silently.
+  The parity test checks every implemented command's parameter names against the bridge.
+- **On macOS `ExitRequested { code: None }` must `prevent_exit()`**, or closing the
+  window quits and the Dock's reopen never runs. Cmd+Q and Windows' Exit raise only
+  `Exit`, so the state is saved there too.
+- **`AGENTRQ_E2E_INIT_SCRIPT` is CI's**: a script the main webview runs first, which seeds
+  the theme until WP4 lets the renderer reach the app (`test/e2e/`).
