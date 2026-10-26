@@ -13,14 +13,14 @@ const SOURCE = readFileSync(new URL('../src/guest/panel.js', import.meta.url), '
  * Run the init script in a page at `href`, as a frame of `top` or the top,
  * and hand an Extension's page `token` as the shell does once it loads.
  */
-function run(href, { webview2 = false, frame = false, answer, token = 'tk', chrome } = {}) {
+function run(href, { webview2 = false, frame = false, answer, token = 'tk', chrome, setTimeout = (fn) => fn() } = {}) {
   const url = new URL(href)
   const listeners = []
   const window = {
-    location: { protocol: url.protocol, hostname: url.hostname },
+    location: { protocol: url.protocol, host: url.host, hostname: url.hostname },
     fetch: vi.fn(async () => answer ?? { json: async () => ({ ok: true, reply: 'pong' }) }),
     addEventListener: vi.fn((type, listener, capture) => listeners.push({ type, listener, capture })),
-    setTimeout: (fn) => fn(),
+    setTimeout,
     chrome,
     listeners,
   }
@@ -90,8 +90,13 @@ describe('the side panel guest init script', () => {
       'use strict'
       window.__agentrqPanelToken = () => {}
     }).toThrow()
-    // A website has no receiver at all.
-    expect(run('https://a.example/').__agentrqPanelToken).toBeUndefined()
+    // A website's receiver does nothing, and stays so.
+    const site = run('https://a.example/')
+    expect(site.__agentrqPanelToken('third')).toBeUndefined()
+    expect(() => {
+      'use strict'
+      site.__agentrqPanelToken = () => {}
+    }).toThrow()
   })
 
   it('tells WebView2 which keys the page left unhandled, from the top frame only', () => {
@@ -117,6 +122,68 @@ describe('the side panel guest init script', () => {
     ]) {
       expect(run('https://a.example/', options).listeners).toEqual([])
     }
+  })
+
+  it('hands the page what its Extension posts, only with the token it holds', () => {
+    const later = []
+    const window = run('agentrq-ext://notes/', { setTimeout: (fn) => later.push(fn) })
+    const heard = []
+    window.agentrq.panel.onMessage(() => {
+      throw new Error('broken')
+    })
+    window.agentrq.panel.onMessage((message) => heard.push(message))
+    window.__agentrqPanelMessage('tk', { n: 1 })
+    expect(heard).toEqual([{ n: 1 }])
+    // The listener that threw is reported once the others have heard it.
+    expect(later).toHaveLength(1)
+    expect(() => later[0]()).toThrow('broken')
+    window.__agentrqPanelMessage('guess', 2)
+    expect(heard).toEqual([{ n: 1 }])
+    expect(() => {
+      'use strict'
+      window.__agentrqPanelMessage = () => {}
+    }).toThrow()
+    // Before the page has a token, nothing it is handed is from the shell.
+    const early = run('agentrq-ext://notes/', { token: null })
+    const none = vi.fn()
+    early.agentrq.panel.onMessage(none)
+    early.__agentrqPanelMessage(null, 3)
+    early.__agentrqPanelMessage('null', 3)
+    expect(none).not.toHaveBeenCalled()
+  })
+
+  it('never hands a post to a website, even one that defines the receiver itself', () => {
+    // What `core::side_panel::child::message_script` evaluates for notes' page.
+    const post = (window, message) =>
+      new Function(
+        'window',
+        'location',
+        `location.protocol + "//" + location.host + "/" === "agentrq-ext://notes/" && window.__agentrqPanelMessage && window.__agentrqPanelMessage("tk", ${JSON.stringify(message)})`
+      )(window, window.location)
+    const notes = run('agentrq-ext://notes/panel/index.html')
+    const heard = vi.fn()
+    notes.agentrq.panel.onMessage(heard)
+    post(notes, { n: 1 })
+    expect(heard).toHaveBeenCalledWith({ n: 1 })
+
+    // The guest moved to a site before the post arrived: the site cannot
+    // take the receiver over, however it tries.
+    const site = run('https://a.example/')
+    const stolen = vi.fn()
+    expect(() => {
+      site.__agentrqPanelMessage = stolen
+    }).toThrow()
+    expect(() => Object.defineProperty(site, '__agentrqPanelMessage', { value: stolen })).toThrow()
+    post(site, { n: 2 })
+    expect(site.__agentrqPanelMessage('tk', 3)).toBeUndefined()
+    // Nor would it with no init script at all, as the address is checked first.
+    const bare = { location: { protocol: 'https:', host: 'a.example' }, __agentrqPanelMessage: stolen }
+    post(bare, { n: 4 })
+    // Nor another Extension's page.
+    const other = run('agentrq-ext://other/')
+    other.agentrq.panel.onMessage(stolen)
+    post(other, { n: 5 })
+    expect(stolen).not.toHaveBeenCalled()
   })
 
   it('lets a page listen, and stop', () => {

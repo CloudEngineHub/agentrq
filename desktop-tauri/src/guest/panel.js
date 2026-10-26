@@ -7,8 +7,10 @@
  * for the Tauri guest, which has no IPC at all.
  *
  * Run before the page's own scripts, in the top frame only (wry runs it in
- * subframes too on Windows, hence the check). A web page gets nothing. An
- * Extension's own page (`agentrq-ext:`) gets `window.agentrq.panel`, whose
+ * subframes too on Windows, hence the check). A web page gets only the two
+ * functions the shell calls, as fixed no-ops it cannot replace, so that what
+ * the shell hands an Extension's page can never reach a site the guest moved
+ * to in the meantime. An Extension's own page (`agentrq-ext:`) gets `window.agentrq.panel`, whose
  * `send` is a `POST` to its own address on that scheme; the shell decides
  * which Extension answers from the guest's own address, the browser-set
  * `Origin` and the token it handed this page once it loaded, never from
@@ -44,10 +46,18 @@
   const extensionPage = webview2
     ? /^https?:$/.test(location.protocol) && location.hostname.startsWith('agentrq-ext.')
     : location.protocol === 'agentrq-ext:'
-  if (!extensionPage) return
+  const receive = (name, value) =>
+    Object.defineProperty(window, name, { value, writable: false, configurable: false })
+  if (!extensionPage) {
+    const ignore = () => {}
+    receive('__agentrqPanelToken', ignore)
+    receive('__agentrqPanelMessage', ignore)
+    return
+  }
 
   // Taken now, before the page can replace them.
   const post = window.fetch.bind(window)
+  const defer = window.setTimeout.bind(window)
   const stringify = JSON.stringify
   const listeners = new Set()
   let token = null
@@ -55,13 +65,23 @@
   const arrival = new Promise((resolve) => {
     tokenArrived = resolve
   })
-  Object.defineProperty(window, '__agentrqPanelToken', {
-    value: (value) => {
-      token = String(value)
-      tokenArrived()
-    },
-    writable: false,
-    configurable: false,
+  receive('__agentrqPanelToken', (value) => {
+    token = String(value)
+    tokenArrived()
+  })
+  // What the Extension posts, handed over by the shell with the token: a
+  // listener that throws is reported, and the others still hear it.
+  receive('__agentrqPanelMessage', (value, message) => {
+    if (token === null || String(value) !== token) return
+    for (const listener of [...listeners]) {
+      try {
+        listener(message)
+      } catch (error) {
+        defer(() => {
+          throw error
+        }, 0)
+      }
+    }
   })
 
   const panel = Object.freeze({
@@ -83,8 +103,7 @@
       return result.reply
     },
     /**
-     * Called with whatever the Extension `post`s to its pages. Extensions
-     * arrive with WP9; until then nothing is posted.
+     * Called with whatever the Extension `post`s to its pages.
      *
      * @returns {() => void} unsubscribe
      */

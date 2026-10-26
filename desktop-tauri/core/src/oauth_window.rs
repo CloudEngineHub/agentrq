@@ -32,6 +32,9 @@ pub enum OAuthError {
     BadUrl,
     /// Another authorisation window is already open; it is brought forward.
     Busy,
+    /// A sign-in window is open on the profile's store, which an
+    /// authorisation window would share.
+    SigningIn,
     /// The person closed the window, which is declining (Electron's `null`).
     Closed,
     /// Nothing came back within [`DEADLINE`].
@@ -45,6 +48,9 @@ impl fmt::Display for OAuthError {
         match self {
             Self::BadUrl => f.write_str("That is not an address the authorisation window opens."),
             Self::Busy => f.write_str("An authorisation window is already open."),
+            Self::SigningIn => {
+                f.write_str("Finish signing in to AgentRQ first, then authorise again.")
+            }
             // `supervisor-auth.js`'s own words for a window closed.
             Self::Closed => f.write_str("The authorisation window was closed."),
             Self::TimedOut => {
@@ -147,6 +153,16 @@ impl Flow {
             load: is_loadable(url),
             ended: None,
         }
+    }
+
+    /// Asked before a subframe follows `url`, where a webview tells subframes
+    /// apart (WebView2): it may load what the page may, but never the
+    /// redirect, and never ends the flow, as Electron's `will-redirect` is the
+    /// top frame's only. WebKitGTK and WKWebView ask about every frame as the
+    /// page, through `navigate`, so there a framed redirect ends the flow, and
+    /// `supervisor-auth.js`'s state check is what refuses it.
+    pub fn navigate_frame(&self, url: &Url) -> bool {
+        !self.ended && !is_redirect(url, &self.redirect) && is_loadable(url)
     }
 
     /// Ends it for `why`, unless it has already ended.
@@ -349,6 +365,24 @@ mod tests {
     }
 
     #[test]
+    fn a_subframe_never_ends_the_flow() {
+        let mut flow = flow();
+        assert!(flow.navigate_frame(&url("https://github.com/login")));
+        assert!(flow.navigate_frame(&url("about:blank")));
+        for refused in [
+            "agentrq://extensions/authorized?code=c&state=s",
+            "agentrq://open?route=/x",
+            "data:text/html,x",
+        ] {
+            assert!(!flow.navigate_frame(&url(refused)), "{refused}");
+        }
+        // The page's own redirect still ends it.
+        let landed = url("agentrq://extensions/authorized?code=c");
+        assert_eq!(flow.navigate(&landed).ended, Some(Ok(landed)));
+        assert!(!flow.navigate_frame(&url("https://github.com/login")));
+    }
+
+    #[test]
     fn says_what_went_wrong_in_words() {
         for (error, words) in [
             (
@@ -356,6 +390,10 @@ mod tests {
                 "That is not an address the authorisation window opens.",
             ),
             (OAuthError::Busy, "An authorisation window is already open."),
+            (
+                OAuthError::SigningIn,
+                "Finish signing in to AgentRQ first, then authorise again.",
+            ),
             (OAuthError::Closed, "The authorisation window was closed."),
             (
                 OAuthError::TimedOut,
