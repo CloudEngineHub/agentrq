@@ -29,7 +29,8 @@ tauri-plugin-dialog = "2.8.3"
 tauri-plugin-opener = "2.7.2"
 http = "1.5.0"
 reqwest = { version = "0.13.5", features = ["cookies", "stream", "gzip", "brotli"] }
-tokio = { version = "1.54.1", features = ["time", "sync"] }
+tokio = { version = "1.54.1", features = ["time", "sync", "process", "io-util", "macros", "rt"] }
+base64 = "0.23.1"
 cookie_store = "0.22.1"
 url = "2.5.8"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -46,6 +47,9 @@ tauri-plugin-global-shortcut = "2.4.1"
 rust-ini = "=0.21.1"
 tauri-plugin-notification = "2.7.0"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0.2"
 gtk = "0.18.2"
@@ -61,10 +65,12 @@ objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39.1"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell"] }
-windows-sys = { version = "0.61.2", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.61.2", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_Foundation"] }
 
 [dev-dependencies]
 tauri = { version = "2.12.5", features = ["test"] }
+lzma-rust2 = { version = "0.24.0", default-features = false, features = ["std", "encoder", "xz"] }
+tar = { version = "0.4.46", default-features = false }
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["time", "sync", "macros", "rt", "net", "io-util", "test-util"] }
 

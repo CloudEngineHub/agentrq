@@ -25,15 +25,50 @@ use serde_json::Value;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::AbortHandle;
 
+use crate::ext_host::ExtHost;
 use crate::network::Network;
 
 pub const STREAM_PATH: &str = "/api/v1/events/stream";
 
-/// Where the stream's events go. Electron also hands each one to
-/// `extensions.reviewToolCalls`; that is another `Events` once WP9 ports
-/// extensions.
+/// Where the stream's events go.
 pub trait Events: Send + Sync {
     fn on_event(&self, event: &Value);
+}
+
+/// Forwards events to the extension host for tool-call review when running,
+/// while passing every event to the inner [`Events`] handler. One task sends
+/// them, in the stream's order, one at a time.
+pub struct ToolReviewEvents {
+    notifier: Arc<dyn Events>,
+    host: Arc<ExtHost>,
+    queue: UnboundedSender<Value>,
+}
+
+impl ToolReviewEvents {
+    pub fn new(notifier: Arc<dyn Events>, host: Arc<ExtHost>) -> Self {
+        let (queue, mut events) = unbounded_channel::<Value>();
+        let reviewer = host.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = events.recv().await {
+                let event = serde_json::json!({ "event": event });
+                let _ = reviewer.call("reviewToolCalls", event).await;
+            }
+        });
+        Self {
+            notifier,
+            host,
+            queue,
+        }
+    }
+}
+
+impl Events for ToolReviewEvents {
+    fn on_event(&self, event: &Value) {
+        self.notifier.on_event(event);
+        if self.host.is_running() {
+            let _ = self.queue.send(event.clone());
+        }
+    }
 }
 
 /// What the task owning the client is told: a command, or an answer to one
@@ -426,5 +461,57 @@ pub(crate) mod tests {
         tx.send(Message::Stop).unwrap();
         drop(tx);
         drive(EventStreamClient::new(transport, timers, handler), rx).await;
+    }
+
+    #[tokio::test]
+    async fn tool_review_forwards_events_in_order_only_while_host_is_running() {
+        use crate::ext_host::tests::{until, FakeServices};
+        use crate::ext_host::Launch;
+        let dir = tempfile::tempdir().unwrap();
+        let reviewed = dir.path().join("reviewed");
+        let notifier = Arc::new(Recorded::default());
+        // Answers everything, and writes down each event it is asked to review.
+        let echo_script = format!(
+            r#"require('readline').createInterface({{ input: process.stdin }}).on('line', (line) => {{
+  const m = JSON.parse(line)
+  if (m.id === undefined) return
+  if (m.method === 'reviewToolCalls') require('fs').appendFileSync({reviewed:?}, m.params.event.type + '\n')
+  process.stdout.write(JSON.stringify({{ jsonrpc: '2.0', id: m.id, result: {{ ok: true }} }}) + '\n')
+}})"#,
+            reviewed = reviewed.to_string_lossy()
+        );
+        let launch = Launch {
+            program: "node".into(),
+            args: vec!["-e".into(), echo_script.into()],
+        };
+        std::fs::write(
+            dir.path().join("extensions-installed.json"),
+            r#"{"installations":[{"name":"x","enabled":true}]}"#,
+        )
+        .unwrap();
+        let host = ExtHost::new(launch, dir.path().into(), Arc::new(FakeServices::default()));
+        let review = ToolReviewEvents::new(notifier.clone(), host.clone());
+
+        // While not running: notifier receives event, host is never started
+        assert!(!host.is_running());
+        review.on_event(&json!({"type": "first"}));
+        assert_eq!(seen(&notifier), [json!({"type": "first"})]);
+        assert!(!host.is_running());
+
+        // Now start the host with a dummy call
+        assert_eq!(host.call("state", json!({})).await.unwrap()["ok"], true);
+        assert!(host.is_running());
+
+        // While running: both get each event, the host in the stream's order.
+        let types = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        for kind in types {
+            review.on_event(&json!({ "type": kind }));
+        }
+        assert_eq!(seen(&notifier).len(), 1 + types.len());
+        let read = || std::fs::read_to_string(&reviewed).unwrap_or_default();
+        let wanted: String = types.iter().map(|kind| format!("{kind}\n")).collect();
+        until(|| read().len() >= wanted.len()).await;
+        assert_eq!(read(), wanted, "in order, and never the first");
+        host.stop();
     }
 }

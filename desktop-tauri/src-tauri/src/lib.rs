@@ -14,6 +14,9 @@ mod commands;
 mod cookie_jar;
 mod event_source;
 mod events;
+mod ext_host;
+mod ext_node;
+mod extensions;
 mod network;
 mod notify;
 // The extension host's `authorize` reaches it in WP9 part 2.
@@ -53,11 +56,15 @@ use tauri_plugin_updater::UpdaterExt;
 use agentrq_desktop_core::notifications::Notification;
 use event_source::Streams;
 use events::EventStream;
+use ext_host::ExtHost;
+use extensions::{HostDrawers, PickedFolder, Picker, ShellServices};
 use network::Network;
 use notify::{Desk, Feed, Notifier};
 use profiles::{app_origin, Profiles, Shell};
 use scheme::{Assets, Scheme, MAIN_WEBVIEW};
 use sign_in::CookieWebview;
+use tauri::path::BaseDirectory;
+use tauri_plugin_dialog::DialogExt;
 use vault::{Keychain, KeychainError};
 
 /// The Vite dev server, when this is `tauri dev`. The scheme forwards to it,
@@ -88,12 +95,13 @@ impl<R: Runtime> Assets for Bundled<R> {
     }
 }
 
-/// The key for the cookie jars, in the OS keychain.
-struct OsKeychain;
+/// A key in the OS keychain: the cookie jars' (`cookie-jar-key`) or the
+/// extension secrets' (`extension-secrets-key`).
+struct OsKeychain(&'static str);
 
 impl OsKeychain {
-    fn entry() -> Result<keyring::Entry, KeychainError> {
-        keyring::Entry::new("com.agentrq.desktop.tauri", "cookie-jar-key").map_err(keychain_error)
+    fn entry(&self) -> Result<keyring::Entry, KeychainError> {
+        keyring::Entry::new("com.agentrq.desktop.tauri", self.0).map_err(keychain_error)
     }
 }
 
@@ -116,14 +124,14 @@ fn keychain_error(error: keyring::Error) -> KeychainError {
 
 impl Keychain for OsKeychain {
     fn get(&self) -> Result<Option<Vec<u8>>, KeychainError> {
-        match Self::entry()?.get_secret() {
+        match self.entry()?.get_secret() {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(error) => Err(keychain_error(error)),
         }
     }
     fn set(&self, secret: &[u8]) -> Result<(), KeychainError> {
-        Self::entry()?.set_secret(secret).map_err(keychain_error)
+        self.entry()?.set_secret(secret).map_err(keychain_error)
     }
 }
 
@@ -575,6 +583,58 @@ async fn finish_sign_in<R: Runtime>(window: WebviewWindow<R>, flow: Flow, id: St
     }
 }
 
+/// The extension host: the bundled entry, run by the Node the Extensions page
+/// downloads into the app data dir. It starts only once an installed
+/// extension is enabled and that Node is there.
+fn extension_host<R: Runtime>(
+    app: &AppHandle<R>,
+    network: Arc<Network>,
+    data_dir: std::path::PathBuf,
+) -> tauri::Result<Arc<ExtHost>> {
+    let node = ext_node::Node::new(&data_dir);
+    // What a quit mid-download left behind.
+    node.sweep();
+    let entry = app
+        .path()
+        .resolve("ext-host/agentrq-ext-host.mjs", BaseDirectory::Resource)?;
+    let args = vec![
+        entry.into(),
+        data_dir.clone().into(),
+        app.package_info().version.to_string().into(),
+    ];
+    let emitter = app.clone();
+    let services = ShellServices::new(
+        network,
+        Arc::new(OsKeychain("extension-secrets-key")),
+        Box::new(move |detail| {
+            let _ = emitter.emit("agentrq:extensions:changed", detail);
+        }),
+    );
+    let host = ExtHost::on_node(node, args, data_dir, Arc::new(services));
+    app.manage(host.clone());
+    Ok(host)
+}
+
+/// `chooseFolder`'s dialog, off the async runtime: it blocks until closed.
+fn pick_folder<R: Runtime>(window: WebviewWindow<R>) -> PickedFolder {
+    Box::pin(async move {
+        let picked = tauri::async_runtime::spawn_blocking(move || {
+            window
+                .dialog()
+                .file()
+                .set_title("Choose an extension folder")
+                .set_parent(&window)
+                .blocking_pick_folder()
+        })
+        .await;
+        picked
+            .ok()
+            .flatten()
+            .and_then(|path| path.into_path().ok())
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+}
+
 pub fn run() {
     let app = chrome::plugins(tauri::Builder::default())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -619,7 +679,7 @@ pub fn run() {
             let lock = connection_lock(std::env::var("AGENTRQ_SERVER_URL").ok().as_deref());
             let network = Arc::new(Network::new(
                 data_dir.clone(),
-                Arc::new(OsKeychain),
+                Arc::new(OsKeychain("cookie-jar-key")),
                 profiles::first_profile(&data_dir, lock.as_deref()),
             ));
             let handle = app.handle().clone();
@@ -627,8 +687,13 @@ pub fn run() {
                 network.clone(),
                 Arc::new(TauriDesk(handle.clone())),
             ));
+            let host = extension_host(&handle, network.clone(), data_dir.clone())?;
+            let events = Arc::new(events::ToolReviewEvents::new(
+                notifier.clone(),
+                host.clone(),
+            ));
             let feed = Arc::new(Feed {
-                stream: EventStream::spawn(network.clone(), notifier.clone()),
+                stream: EventStream::spawn(network.clone(), events),
                 notifier: notifier.clone(),
             });
             let profiles = Arc::new(Profiles::new(
@@ -640,7 +705,7 @@ pub fn run() {
             ));
             profiles.sweep();
             profiles.watch();
-            app.manage(profiles);
+            app.manage(profiles.clone());
             let clicked = notifier.clone();
             handle.notification().on_action(move |action| {
                 let extra = action.notification().map(|n| n.extra());
@@ -663,7 +728,13 @@ pub fn run() {
             });
             app.manage(network.clone());
             app.manage(Streams::default());
+            app.manage(Picker::<tauri::Wry>(Box::new(pick_folder)));
+            let drawers = HostDrawers {
+                host: host.clone(),
+                origin: Box::new(move || app_origin(&profiles.active_id())),
+            };
             let scheme = Scheme::new(network, assets, &dev_url(&handle))
+                .drawers(Box::new(drawers))
                 .on_proxied(Box::new(move |method, path| notifier.proxied(method, path)));
             app.manage(scheme);
             init_updater(&handle);
@@ -677,6 +748,8 @@ pub fn run() {
             app_menu::install(&handle)?;
             let _ = app_menu::install_tray(&handle);
             chrome::install_hooks(&handle);
+            // Off the async runtime: the first check of Node hashes it.
+            tauri::async_runtime::spawn_blocking(move || host.boot());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -694,6 +767,8 @@ pub fn run() {
                 rebuild_main(app);
             }
             RunEvent::Exit => {
+                let host = app.state::<Arc<ExtHost>>().inner().clone();
+                host.kill_sync();
                 if let Some(installer) = app.try_state::<ExitInstaller>() {
                     (installer.0)();
                 }

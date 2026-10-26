@@ -105,6 +105,18 @@ const OPTIONS_CALLS = new Set(['extensions.installLocal', 'extensions.installFro
 const argsFor = (path) => (OPTIONS_CALLS.has(path) ? ['s1', { grant: 's2', config: 's3' }] : ['s1', 's2'])
 
 const members = (api) => Object.entries(tree(api)).filter(([, kind]) => kind.startsWith('function'))
+
+/**
+ * The bridge's members Electron has no use for: it bundles Node, so its
+ * extension host never needs it downloaded.
+ */
+const TAURI_ONLY = {
+  'extensions.downloadNode': 'extensions_download_node',
+  'extensions.cancelNodeDownload': 'extensions_cancel_node_download',
+  'extensions.onNodeProgress': 'agentrq:extensions:node-progress',
+}
+const withoutTauriOnly = (members) =>
+  Object.fromEntries(Object.entries(members).filter(([path]) => !(path in TAURI_ONLY)))
 const at = (api, path) => path.split('.').reduce((o, k) => o[k], api)
 
 let electron
@@ -126,7 +138,30 @@ beforeAll(async () => {
 describe('the bridge mirrors the Electron preload', () => {
   it('exposes the same members, of the same kind and arity', () => {
     expect(electron.exposed.agentrq).toBeDefined()
-    expect(tree(agentrq)).toEqual(tree(electron.exposed.agentrq))
+    expect(withoutTauriOnly(tree(agentrq))).toEqual(tree(electron.exposed.agentrq))
+  })
+
+  it('adds only the Node download, which Electron bundles instead', async () => {
+    const ours = tree(agentrq)
+    expect(Object.keys(ours).filter((path) => !(path in tree(electron.exposed.agentrq)))).toEqual(
+      Object.keys(TAURI_ONLY),
+    )
+    for (const path of ['extensions.downloadNode', 'extensions.cancelNodeDownload']) {
+      tauri.invoke.mockReset().mockResolvedValue(undefined)
+      await at(agentrq, path)()
+      expect(tauri.invoke).toHaveBeenCalledWith(TAURI_ONLY[path])
+    }
+    const unlisten = vi.fn()
+    tauri.listen.mockReset().mockResolvedValue(unlisten)
+    const heard = vi.fn()
+    const off = agentrq.extensions.onNodeProgress(heard)
+    expect(tauri.listen.mock.calls[0][0]).toBe(TAURI_ONLY['extensions.onNodeProgress'])
+    tauri.listen.mock.calls[0][1]({ payload: { percent: 7 } })
+    expect(heard).toHaveBeenCalledWith({ percent: 7 })
+    await tauri.listen.mock.results[0].value
+    await Promise.resolve()
+    off()
+    expect(unlisten).toHaveBeenCalledTimes(1)
   })
 
   it('differs in the versions it reports, and nothing else', () => {
@@ -208,7 +243,7 @@ describe('the command pattern', () => {
 
 describe('the Rust side serves what the bridge calls', () => {
   // The handler lives in commands.rs; the commands of a work package beside it.
-  const SOURCES = ['commands', 'chrome', 'app_menu', 'side_panel', 'panel_permissions']
+  const SOURCES = ['commands', 'chrome', 'app_menu', 'side_panel', 'panel_permissions', 'extensions']
   const sources = SOURCES.map((name) => read(`../src-tauri/src/${name}.rs`))
   const rust = sources[0]
   const defined = sources.flatMap((source) => [...source.matchAll(COMMAND_PATTERN)].map((m) => m[1])).sort()
@@ -240,8 +275,17 @@ describe('the Rust side serves what the bridge calls', () => {
     'side_panel_guest_stop_find',
   ]
   // The bridge's own: the key listener's menu commands (Electron's menu runs in
-  // the main process), `EventSource` (net.js), and `navigation_ready`; Electron has no channel for either.
-  const BRIDGE_ONLY = ['event_source_close', 'event_source_open', 'menu_key_bindings', 'menu_run', 'navigation_ready']
+  // the main process), `EventSource` (net.js), `navigation_ready`, and the Node
+  // download (TAURI_ONLY); Electron has no channel for any of them.
+  const BRIDGE_ONLY = [
+    'event_source_close',
+    'event_source_open',
+    'extensions_cancel_node_download',
+    'extensions_download_node',
+    'menu_key_bindings',
+    'menu_run',
+    'navigation_ready',
+  ]
 
   it('has one command per channel the preload invokes, plus the guest one and the bridge\'s own', () => {
     const preload = read('../../desktop/src/preload/index.js')
@@ -313,14 +357,11 @@ describe('the Rust side serves what the bridge calls', () => {
         params.set(m[1], list)
       }
     }
-    // A work package's stub takes no arguments until the package replaces it.
-    const stubs = new Set([...rust.matchAll(/pub fn (\w+)\(\)[^{]*\{\s*todo\(/g)].map((m) => m[1]))
     tauri.invoke.mockReset().mockResolvedValue(undefined)
     for (const [path] of members(agentrq).filter(([p]) => !/\.on[A-Z]/.test(p))) {
       await at(agentrq, path)(...argsFor(path))
     }
-    const bridge = tauri.invoke.mock.calls.filter(([n]) => !stubs.has(n))
-    expect(stubs.size).toBeGreaterThan(0)
+    const bridge = tauri.invoke.mock.calls
     expect(bridge.length).toBeGreaterThan(0)
     for (const [command, payload] of bridge) {
       const taken = params.get(command)
@@ -340,6 +381,10 @@ describe('the Rust side serves what the bridge calls', () => {
       profiles_switch: ['id'],
       profiles_rename: ['id', 'label'],
       profiles_remove: ['id'],
+      extensions_uninstall: ['name'],
+      extensions_set_enabled: ['name', 'enabled'],
+      extensions_configure: ['name'],
+      extensions_set_hook_consent: ['name', 'level'],
     }
     for (const [command, names] of Object.entries(required)) {
       for (const name of names) {

@@ -2,7 +2,7 @@
 // This notice may not be modified or removed.
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { computed, ref } from 'vue';
+import { computed, getCurrentScope, onScopeDispose, ref } from 'vue';
 
 /**
  * What the Extensions screen shows, and in what order.
@@ -216,6 +216,21 @@ export function asksFor(manifest) {
   );
 }
 
+/** `31978868` → `32 MB`: a download's size as its prompt says it. */
+export function megabytes(bytes) {
+  return `${Math.round((Number(bytes) || 0) / 1e6)} MB`;
+}
+
+/** A download's progress as a whole percent from 0 to 100, whatever arrived. */
+export function clampPercent(percent) {
+  return Math.min(100, Math.max(0, Math.round(Number(percent) || 0)));
+}
+
+/** What a failure says: Tauri rejects with the reason itself, Electron with an Error. */
+function reasonOf(err, otherwise) {
+  return (typeof err === 'string' ? err : err?.message) || otherwise;
+}
+
 /** The install flow's states. A grant is a question, so there is a step for it. */
 export const INSTALL_STEP = { idle: 'idle', asking: 'asking', working: 'working' };
 
@@ -248,6 +263,34 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
   /** Whether account-wide tools can be used at all yet. */
   const authorized = ref(false);
 
+  /**
+   * The Node.js extensions run on, as the Tauri app reports it: `installed`,
+   * `update`, `version` and `size`. Electron bundles Node and reports nothing,
+   * which reads as installed.
+   */
+  const node = ref(null);
+  const nodeInstalled = computed(() => node.value?.installed !== false);
+  /** The download's `{ downloaded, total, percent }` while one runs. */
+  const nodeProgress = ref(null);
+  const downloadingNode = ref(false);
+  /** Whether the download prompt is on screen. */
+  const promptDownloadNode = ref(false);
+  /** Why the last download failed, said inside the prompt. */
+  const nodeError = ref('');
+  /** What to do once Node is there: the act that needed it. */
+  let afterNode = null;
+
+  if (typeof bridge?.onNodeProgress === 'function') {
+    const off = bridge.onNodeProgress((progress) => {
+      nodeProgress.value = {
+        downloaded: progress?.downloaded ?? 0,
+        total: progress?.total ?? 0,
+        percent: clampPercent(progress?.percent),
+      };
+    });
+    if (getCurrentScope()) onScopeDispose(off);
+  }
+
   /** Whether any installed extension actually wants them. */
   const needsAuthorization = computed(() =>
     !authorized.value && installed.value.some((entry) => entry.grant?.scope === SCOPE_SUPERVISOR),
@@ -271,6 +314,7 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
       const state = await bridge.state();
       index.value = state?.index ?? index.value;
       installed.value = state?.installed ?? [];
+      node.value = state?.node ?? null;
       authorized.value = (await bridge.supervisor?.())?.authorized ?? false;
     } catch (err) {
       error.value = err?.message || 'Could not read the extension catalogue.';
@@ -287,11 +331,12 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
    * the screen and closed it again.
    */
   async function refresh() {
-    if (!bridge) return;
+    if (!bridge || needsNodeFirst(refresh)) return;
     loading.value = true;
     error.value = '';
     try {
       const result = await bridge.refresh();
+      if (refusedForNode(result, refresh)) return;
       if (result?.index) index.value = result.index;
       if (result && result.ok === false) error.value = result.reason ?? 'Could not refresh.';
     } catch (err) {
@@ -309,11 +354,12 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
    * screen that does have something on it.
    */
   async function chooseFolder() {
-    if (!bridge) return;
+    if (!bridge || needsNodeFirst(chooseFolder)) return;
     error.value = '';
     notice.value = '';
 
     const found = await bridge.chooseFolder();
+    if (refusedForNode(found, chooseFolder)) return;
     // Cancelling a file dialog is not an error and must not read as one.
     if (found?.cancelled) return;
     if (!found?.ok) {
@@ -347,6 +393,7 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
    */
   async function beginInstall(row) {
     if (!bridge || !row || row.installed) return;
+    if (needsNodeFirst(() => beginInstallOf(row.fullName))) return;
     error.value = '';
     notice.value = '';
 
@@ -370,6 +417,81 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
     // the whole of the decision, and it is not one to make by single click.
     candidate.value = { ...row, kind: 'catalogue' };
     step.value = INSTALL_STEP.asking;
+  }
+
+  /**
+   * The same row, found again once Node is there. The page has reloaded by
+   * then, and only now does the row say whether this app can run it.
+   */
+  function beginInstallOf(fullName) {
+    const row = sections.value.flatMap((section) => section.rows).find((r) => r.fullName === fullName);
+    if (!row) {
+      error.value = 'That extension is no longer in the catalogue.';
+      return;
+    }
+    return beginInstall(row);
+  }
+
+  /**
+   * Stop to ask about downloading Node, when an act needs it and it is not
+   * there; `then` runs once it is. Nothing downloads without that answer.
+   */
+  function needsNodeFirst(then) {
+    if (nodeInstalled.value) return false;
+    afterNode = then;
+    nodeError.value = '';
+    promptDownloadNode.value = true;
+    return true;
+  }
+
+  /** A refusal for want of Node, which the page did not know was missing. */
+  function refusedForNode(result, then) {
+    if (!result?.needsNode) return false;
+    node.value = { ...node.value, installed: false };
+    needsNodeFirst(then);
+    return true;
+  }
+
+  /** Ask about downloading Node with nothing waiting on it: the page's banner. */
+  function askForNode() {
+    needsNodeFirst(null);
+  }
+
+  /** Download Node, then do what was waiting on it. */
+  async function downloadNode() {
+    if (!bridge?.downloadNode || downloadingNode.value) return;
+    downloadingNode.value = true;
+    nodeError.value = '';
+    nodeProgress.value = null;
+    try {
+      const result = await bridge.downloadNode();
+      if (result?.cancelled) return;
+      if (!result?.ok) {
+        nodeError.value = result?.reason || 'Node.js could not be downloaded.';
+        return;
+      }
+      promptDownloadNode.value = false;
+      const then = afterNode;
+      afterNode = null;
+      await load();
+      await then?.();
+    } catch (err) {
+      nodeError.value = reasonOf(err, 'Node.js could not be downloaded.');
+    } finally {
+      downloadingNode.value = false;
+      nodeProgress.value = null;
+    }
+  }
+
+  /** Stop the download under way, or put the question away if none is. */
+  function cancelDownloadNode() {
+    if (downloadingNode.value) {
+      bridge?.cancelNodeDownload?.();
+      return;
+    }
+    promptDownloadNode.value = false;
+    afterNode = null;
+    nodeError.value = '';
   }
 
   /** Install what was found, with whatever the grant screen answered. */
@@ -433,7 +555,7 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
       } else outcome = { notice: describe };
       await load();
     } catch (err) {
-      outcome = { error: err?.message || 'That did not work.' };
+      outcome = { error: reasonOf(err, 'That did not work.') };
     }
 
     if (outcome.error) error.value = outcome.error;
@@ -476,6 +598,15 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
     installed,
     authorized,
     needsAuthorization,
+    node,
+    nodeInstalled,
+    nodeProgress,
+    downloadingNode,
+    promptDownloadNode,
+    nodeError,
+    askForNode,
+    downloadNode,
+    cancelDownloadNode,
     authorize,
     deauthorize,
     sections,

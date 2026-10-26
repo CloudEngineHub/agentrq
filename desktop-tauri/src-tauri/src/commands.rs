@@ -4,9 +4,7 @@
 
 //! Every command behind `window.agentrq`, one per Electron IPC channel.
 //!
-//! Each starts as a stub that answers a `todo` error, so the work package that
-//! owns it replaces its own stub and nothing else, and the packages merge
-//! independently. A command is named after its channel: drop `agentrq:`, turn
+//! A command is named after its channel: drop `agentrq:`, turn
 //! `:` and `-` into `_`, and camelCase into snake_case
 //! (`agentrq:side-panel:permission-answer` is `side_panel_permission_answer`).
 //! The `on*` listeners are events, not commands, so they are not here.
@@ -21,13 +19,6 @@ use serde_json::{json, Value};
 use crate::event_source::{self, Frame, Sink, Streams};
 use crate::network::Network;
 use crate::profiles::{ConnectionState, Profiles, ProfilesView};
-
-/// The error a stub answers: the member, and the work package that owns it.
-pub fn todo(member: &str, owner: &str) -> Result<(), String> {
-    Err(format!(
-        "window.agentrq.{member} is not implemented yet ({owner})"
-    ))
-}
 
 /// `agentrq:attachments:forgetAll`: signing out.
 #[tauri::command]
@@ -192,96 +183,6 @@ pub async fn notifications_set_muted(
     Ok(json!({"mutedWorkspaces": muted}))
 }
 
-/// `agentrq:extensions:authorize`
-#[tauri::command]
-pub fn extensions_authorize() -> Result<(), String> {
-    todo("extensions.authorize", "WP9")
-}
-
-/// `agentrq:extensions:choose-folder`
-#[tauri::command]
-pub fn extensions_choose_folder() -> Result<(), String> {
-    todo("extensions.chooseFolder", "WP9")
-}
-
-/// `agentrq:extensions:configure`
-#[tauri::command]
-pub fn extensions_configure() -> Result<(), String> {
-    todo("extensions.configure", "WP9")
-}
-
-/// `agentrq:extensions:deauthorize`
-#[tauri::command]
-pub fn extensions_deauthorize() -> Result<(), String> {
-    todo("extensions.deauthorize", "WP9")
-}
-
-/// `agentrq:extensions:drawer`
-#[tauri::command]
-pub fn extensions_drawer() -> Result<(), String> {
-    todo("extensions.drawer", "WP9")
-}
-
-/// `agentrq:extensions:entries`
-#[tauri::command]
-pub fn extensions_entries() -> Result<(), String> {
-    todo("extensions.entries", "WP9")
-}
-
-/// `agentrq:extensions:install-catalogue`
-#[tauri::command]
-pub fn extensions_install_catalogue() -> Result<(), String> {
-    todo("extensions.installFromCatalogue", "WP9")
-}
-
-/// `agentrq:extensions:install-local`
-#[tauri::command]
-pub fn extensions_install_local() -> Result<(), String> {
-    todo("extensions.installLocal", "WP9")
-}
-
-/// `agentrq:extensions:invoke`
-#[tauri::command]
-pub fn extensions_invoke() -> Result<(), String> {
-    todo("extensions.invoke", "WP9")
-}
-
-/// `agentrq:extensions:refresh`
-#[tauri::command]
-pub fn extensions_refresh() -> Result<(), String> {
-    todo("extensions.refresh", "WP9")
-}
-
-/// `agentrq:extensions:set-enabled`
-#[tauri::command]
-pub fn extensions_set_enabled() -> Result<(), String> {
-    todo("extensions.setEnabled", "WP9")
-}
-
-/// `agentrq:extensions:set-hook-consent`
-#[tauri::command]
-pub fn extensions_set_hook_consent() -> Result<(), String> {
-    todo("extensions.setHookConsent", "WP9")
-}
-
-/// `agentrq:extensions:state`
-#[tauri::command]
-pub fn extensions_state() -> Result<(), String> {
-    todo("extensions.state", "WP9")
-}
-
-/// `agentrq:extensions:supervisor`
-#[tauri::command]
-pub fn extensions_supervisor() -> Result<(), String> {
-    todo("extensions.supervisor", "WP9")
-}
-
-/// `agentrq:extensions:uninstall`
-#[tauri::command]
-pub fn extensions_uninstall() -> Result<(), String> {
-    todo("extensions.uninstall", "WP9")
-}
-
 use tauri::{AppHandle, Manager, Runtime};
 
 /// `agentrq:update:check`
@@ -340,13 +241,6 @@ pub fn update_install_via_script<R: Runtime>(
     }
 }
 
-/// `agentrq:side-panel:pages`: the installed Extensions' panel pages. WP9
-/// installs Extensions; until then there are none.
-#[tauri::command]
-pub fn side_panel_pages() -> Vec<serde_json::Value> {
-    Vec::new()
-}
-
 /// `agentrq:navigation:ready`
 #[tauri::command]
 pub fn navigation_ready<R: Runtime>(app: AppHandle<R>) {
@@ -375,27 +269,29 @@ pub fn handler<R: tauri::Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + 
         crate::chrome::clipboard_write,
         crate::chrome::emoji_show_panel,
         crate::chrome::dialog_choose_directory,
-        extensions_authorize,
-        extensions_choose_folder,
-        extensions_configure,
-        extensions_deauthorize,
-        extensions_drawer,
-        extensions_entries,
-        extensions_install_catalogue,
-        extensions_install_local,
-        extensions_invoke,
-        extensions_refresh,
-        extensions_set_enabled,
-        extensions_set_hook_consent,
-        extensions_state,
-        extensions_supervisor,
-        extensions_uninstall,
+        crate::extensions::extensions_authorize,
+        crate::extensions::extensions_cancel_node_download,
+        crate::extensions::extensions_choose_folder,
+        crate::extensions::extensions_configure,
+        crate::extensions::extensions_deauthorize,
+        crate::extensions::extensions_download_node,
+        crate::extensions::extensions_drawer,
+        crate::extensions::extensions_entries,
+        crate::extensions::extensions_install_catalogue,
+        crate::extensions::extensions_install_local,
+        crate::extensions::extensions_invoke,
+        crate::extensions::extensions_refresh,
+        crate::extensions::extensions_set_enabled,
+        crate::extensions::extensions_set_hook_consent,
+        crate::extensions::extensions_state,
+        crate::extensions::extensions_supervisor,
+        crate::extensions::extensions_uninstall,
         update_check,
         update_get,
         update_install,
         update_install_via_script,
         crate::side_panel::side_panel_open_external,
-        side_panel_pages,
+        crate::extensions::side_panel_pages,
         crate::panel_permissions::side_panel_permission_answer,
         crate::panel_permissions::side_panel_permission_remove,
         crate::panel_permissions::side_panel_permissions,
@@ -433,64 +329,6 @@ mod tests {
     #[cfg(not(windows))]
     const LOCAL: &str = "tauri://localhost";
 
-    /// The remaining stub commands answering `todo`.
-    const STUB_COMMANDS: &[(&str, &str)] = &[
-        ("attachments_forget_all", "attachments.forgetAll"),
-        ("attachments_forget_task", "attachments.forgetTask"),
-        (
-            "attachments_forget_workspace",
-            "attachments.forgetWorkspace",
-        ),
-        ("connection_cancel", "connection.cancel"),
-        ("connection_get", "connection.get"),
-        ("connection_save", "connection.save"),
-        ("connection_validate", "connection.validate"),
-        ("notifications_get", "notifications.get"),
-        ("notifications_set_muted", "notifications.setMuted"),
-        ("profiles_add", "profiles.add"),
-        ("profiles_get", "profiles.get"),
-        ("profiles_remove", "profiles.remove"),
-        ("profiles_rename", "profiles.rename"),
-        ("profiles_switch", "profiles.switch"),
-        ("extensions_authorize", "extensions.authorize"),
-        ("extensions_choose_folder", "extensions.chooseFolder"),
-        ("extensions_configure", "extensions.configure"),
-        ("extensions_deauthorize", "extensions.deauthorize"),
-        ("extensions_drawer", "extensions.drawer"),
-        ("extensions_entries", "extensions.entries"),
-        (
-            "extensions_install_catalogue",
-            "extensions.installFromCatalogue",
-        ),
-        ("extensions_install_local", "extensions.installLocal"),
-        ("extensions_invoke", "extensions.invoke"),
-        ("extensions_refresh", "extensions.refresh"),
-        ("extensions_set_enabled", "extensions.setEnabled"),
-        ("extensions_set_hook_consent", "extensions.setHookConsent"),
-        ("extensions_state", "extensions.state"),
-        ("extensions_supervisor", "extensions.supervisor"),
-        ("extensions_uninstall", "extensions.uninstall"),
-    ];
-
-    /// The commands WP2, WP4 and WP6 have replaced; every other one is still a
-    /// stub.
-    const DONE: [&str; 14] = [
-        "attachments_forget_all",
-        "attachments_forget_task",
-        "attachments_forget_workspace",
-        "connection_cancel",
-        "connection_get",
-        "connection_save",
-        "connection_validate",
-        "notifications_get",
-        "notifications_set_muted",
-        "profiles_add",
-        "profiles_get",
-        "profiles_remove",
-        "profiles_rename",
-        "profiles_switch",
-    ];
-
     struct Rig {
         _app: tauri::App<tauri::test::MockRuntime>,
         webview: tauri::WebviewWindow<tauri::test::MockRuntime>,
@@ -505,11 +343,20 @@ mod tests {
             ),
             None,
         );
+        let host = crate::ext_host::ExtHost::new(
+            crate::ext_host::Launch {
+                program: "node".into(),
+                args: vec![],
+            },
+            profiles.dir.path().into(),
+            Arc::new(crate::ext_host::tests::FakeServices::default()),
+        );
         let app = mock_builder()
             .invoke_handler(super::handler())
             .manage(profiles.network.clone())
             .manage(profiles.profiles.clone())
             .manage(Streams::default())
+            .manage(host)
             .build(mock_context(noop_assets()))
             .expect("mock app");
         let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
@@ -541,22 +388,6 @@ mod tests {
             },
         )
         .map(|body| body.deserialize().unwrap())
-    }
-
-    #[test]
-    fn every_command_is_registered_and_the_stubs_answer_todo() {
-        let rig = rig();
-        assert_eq!(STUB_COMMANDS.len(), 29, "stub commands answering todo");
-        for (cmd, member) in STUB_COMMANDS.iter().filter(|(cmd, _)| !DONE.contains(cmd)) {
-            let err = call(&rig, cmd, serde_json::json!({})).expect_err(cmd);
-            let text = err.as_str().unwrap_or_default();
-            assert!(
-                text.starts_with(&format!(
-                    "window.agentrq.{member} is not implemented yet (WP"
-                )),
-                "{cmd}: {err}"
-            );
-        }
     }
 
     #[test]
