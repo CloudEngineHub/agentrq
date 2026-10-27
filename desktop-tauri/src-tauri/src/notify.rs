@@ -19,6 +19,8 @@ use agentrq_desktop_core::notifications::{
     Notification, NotificationGate, SelfActionGate, SystemClock, UnreadCounter,
 };
 use serde_json::Value;
+use tauri::plugin::Plugin;
+use tauri::{AppHandle, Runtime};
 
 use crate::events::{EventStream, Events};
 use crate::network::Network;
@@ -32,6 +34,36 @@ pub const NAMES_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What a notification's click carries back: the route to open.
 pub const ROUTE_KEY: &str = "route";
+
+/// What a side panel site's notification carries back instead: the guest's
+/// label and the webview's own id for it, as `{"guest", "id"}`.
+pub const SITE_KEY: &str = "site";
+
+/// tauri-plugin-notification for the shell alone. Tauri runs a plugin's init
+/// script in every webview, a side panel guest's too, and the plugin's
+/// replaces `window.Notification` with one that calls commands no capability
+/// grants: a site could then never ask to notify. Its commands go with it,
+/// since nothing may call them.
+///
+/// Only `name` and `initialize` are passed on. The plugin's other hooks drop
+/// the page listeners its commands kept, and there are none; a hook a newer
+/// plugin or `Plugin` trait adds must be passed on here if the shell needs
+/// it (`shell_only_was_checked_against_these_versions`).
+pub struct ShellOnly<P>(pub P);
+
+impl<R: Runtime, P: Plugin<R>> Plugin<R> for ShellOnly<P> {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+
+    fn initialize(
+        &mut self,
+        app: &AppHandle<R>,
+        config: Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.0.initialize(app, config)
+    }
+}
 
 /// What only the app can do. Never called with one of the [`Notifier`]'s
 /// locks held.
@@ -222,6 +254,15 @@ impl Events for Notifier {
 pub fn tapped(action: &str, extra: Option<&HashMap<String, Value>>) -> Option<String> {
     let route = extra?.get(ROUTE_KEY)?.as_str()?;
     (action == "tap").then(|| route.to_string())
+}
+
+/// The guest and the webview's id a site's notification carries, when the
+/// click is on the notification itself.
+pub fn site_tapped(action: &str, extra: Option<&HashMap<String, Value>>) -> Option<(String, u64)> {
+    let site = extra?.get(SITE_KEY)?;
+    let guest = site.get("guest")?.as_str()?;
+    let id = site.get("id")?.as_u64()?;
+    (action == "tap").then(|| (guest.to_string(), id))
 }
 
 /// The stream and its notifications, following the active profile.
@@ -537,6 +578,62 @@ pub(crate) mod tests {
         assert_eq!(tapped("snooze", Some(&extra)), None);
         assert_eq!(tapped("tap", Some(&HashMap::new())), None);
         assert_eq!(tapped("tap", None), None);
+    }
+
+    #[test]
+    fn a_sites_tap_carries_its_guest_and_id() {
+        let site = |value: Value| HashMap::from([(SITE_KEY.to_string(), value)]);
+        let extra = site(json!({"guest": "panel-guest-3", "id": 17}));
+        assert_eq!(
+            site_tapped("tap", Some(&extra)),
+            Some(("panel-guest-3".to_string(), 17))
+        );
+        assert_eq!(site_tapped("snooze", Some(&extra)), None);
+        assert_eq!(site_tapped("tap", Some(&site(json!({"id": 17})))), None);
+        let no_id = site(json!({"guest": "panel-guest-3", "id": "17"}));
+        assert_eq!(site_tapped("tap", Some(&no_id)), None);
+        let route = HashMap::from([(ROUTE_KEY.to_string(), json!("/workspaces/w"))]);
+        assert_eq!(site_tapped("tap", Some(&route)), None);
+        assert_eq!(site_tapped("tap", None), None);
+        // And the app's own never reads as a site's.
+        assert_eq!(tapped("tap", Some(&extra)), None);
+    }
+
+    #[test]
+    fn the_plugin_serves_the_shell_and_puts_nothing_in_a_page() {
+        use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+        use tauri_plugin_notification::NotificationExt;
+
+        // What the plugin alone would put in every webview, a guest's too.
+        let plugin = tauri_plugin_notification::init::<MockRuntime>();
+        assert!(plugin.initialization_script_2().is_some());
+        let shell_only = ShellOnly(tauri_plugin_notification::init::<MockRuntime>());
+        assert_eq!(shell_only.name(), "notification");
+        assert!(shell_only.initialization_script_2().is_none());
+
+        let app = mock_builder()
+            .plugin(shell_only)
+            .build(mock_context(noop_assets()))
+            .expect("mock app");
+        // Set up, which is all the shell's notifications need: this panics
+        // when the plugin's state was never managed.
+        app.notification();
+    }
+
+    /// A bump of either fails here until somebody has read the plugin's
+    /// hooks and the `Plugin` trait for what [`ShellOnly`] must pass on.
+    #[test]
+    fn shell_only_was_checked_against_these_versions() {
+        // CRLF in a Windows checkout.
+        let lock = include_str!("../Cargo.lock").replace("\r\n", "\n");
+        let locked = |name: &str| {
+            let entry = format!("[[package]]\nname = \"{name}\"\nversion = \"");
+            let at = lock.find(&entry).map(|at| at + entry.len());
+            at.and_then(|at| lock[at..].split('"').next())
+        };
+        assert_eq!(locked("tauri").map(|v| &v[..5]), Some("2.12."));
+        let plugin = locked("tauri-plugin-notification");
+        assert_eq!(plugin.map(|v| &v[..4]), Some("2.7."));
     }
 
     #[tokio::test]

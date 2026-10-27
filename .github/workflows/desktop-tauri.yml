@@ -285,6 +285,32 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }
 
+      # The app's own window never shows WebView2's notification prompt (the
+      # Workspace settings' Enable Push): main-notifications.js asks, and
+      # extensions-server.mjs takes the answer, which must be "denied". A
+      # prompt leaves it unanswered.
+      - name: The window refuses notifications (Windows)
+        if: runner.os == 'Windows'
+        working-directory: desktop-tauri
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $server = Start-Process node -ArgumentList 'test/e2e/extensions-server.mjs', '39118' -RedirectStandardOutput notify-steps.txt -PassThru -NoNewWindow
+          # Read now, or ExitCode stays empty once it has exited.
+          $null = $server.Handle
+          $env:AGENTRQ_SERVER_URL = 'http://127.0.0.1:39118'
+          $env:AGENTRQ_E2E_INIT_SCRIPT = Get-Content -Raw test\e2e\main-notifications.js
+          $app = Start-Process src-tauri\target\release\agentrq-tauri.exe -PassThru
+          $answered = $server.WaitForExit(90000)
+          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+          Get-Content notify-steps.txt
+          if (-not $answered) {
+            Stop-Process -Id $server.Id -Force
+            Write-Output 'The window was never answered: WebView2 asked the person.'
+            exit 1
+          }
+          if ($server.ExitCode -ne 0) { exit 1 }
+
       - name: Upload the screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -318,7 +344,8 @@ jobs:
         run: npm install -g npm@12.2.0
 
       # WebKitGTK to build against; WebKitWebDriver for tauri-driver; Xvfb and a
-      # session bus to run the app on; xclip to read the clipboard it writes.
+      # session bus to run the app on; xclip to read the clipboard it writes;
+      # xdotool to click in a panel site, which WebKitGTK needs before it asks to notify.
       - name: Install the Linux packages
         run: |
           # A trickling mirror once ate 27 minutes of a job. apt drops a connection
@@ -326,7 +353,7 @@ jobs:
           # still stuck, and the next resumes from the packages already fetched.
           for try in 1 2 3; do
             timeout -k 30 300 sudo apt-get update -q -o Acquire::http::Timeout=30 -o Acquire::Retries=5 &&
-              timeout -k 30 900 sudo apt-get install -y -q -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=60 -o Acquire::http::Timeout=30 -o Acquire::Retries=5 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev webkit2gtk-driver xvfb xclip dbus-x11 python3-gi && break
+              timeout -k 30 900 sudo apt-get install -y -q -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=60 -o Acquire::http::Timeout=30 -o Acquire::Retries=5 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev webkit2gtk-driver xvfb xclip xdotool dbus-x11 python3-gi && break
             rc=$?
             [ "$try" = 3 ] && exit 1
             echo "::warning::apt try $try failed or stalled (exit $rc); retrying"

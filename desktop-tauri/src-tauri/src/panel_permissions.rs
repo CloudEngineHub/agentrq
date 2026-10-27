@@ -9,8 +9,8 @@
 //! `side-panel-permissions/<profileId>.json`. Each platform's webview hands
 //! its request to [`request`] (`side_panel/`'s platform files); the question
 //! goes to the app's window, and only that window may answer it, list the
-//! answers or remove one. A guest has no command at all, and these refuse any
-//! webview but `main` besides.
+//! answers or remove one. The ACL refuses every command a guest calls, and
+//! these refuse any webview but `main` besides.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -21,7 +21,7 @@ use agentrq_desktop_core::side_panel::permission_store::{PermissionStore, SitePe
 use agentrq_desktop_core::side_panel::permissions::{
     origin_of, GuestPage, PermissionBroker, PermissionQuestion,
 };
-use agentrq_desktop_core::side_panel::platform_permissions::{Ask, NativeAsk};
+use agentrq_desktop_core::side_panel::platform_permissions::{Ask, NativeAsk, NotificationSeeds};
 use tauri::async_runtime::{spawn, spawn_blocking};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, Webview};
 
@@ -136,22 +136,36 @@ fn current_in<R: Runtime>(app: &AppHandle<R>, state: &PanelPermissions) -> Arc<C
     current
 }
 
+/// Tell the guests' webviews which sites may notify: before a guest is
+/// made, and whenever an answer changes.
+fn seed<R: Runtime>(app: &AppHandle<R>, profile: &str, sites: &[SitePermissions]) {
+    let seeds = NotificationSeeds::from_sites(sites);
+    crate::side_panel::seed_notifications(app, profile, seeds);
+}
+
+/// The active profile's notification answers, read from its file.
+pub async fn seed_notifications<R: Runtime>(app: &AppHandle<R>) {
+    let app = app.clone();
+    let _ = spawn_blocking(move || {
+        let current = current(&app);
+        current.store.load();
+        seed(&app, &current.profile, &current.store.list());
+    })
+    .await;
+}
+
 /// A guest was made for `profile`.
 pub fn opened<R: Runtime>(app: &AppHandle<R>, guest: u32, profile: &str) {
-    if let Some(state) = app.try_state::<PanelPermissions>() {
-        let page = Page {
-            profile: profile.to_string(),
-            document: 0,
-        };
-        lock(&state.pages).insert(guest, page);
-    }
+    let page = Page {
+        profile: profile.to_string(),
+        document: 0,
+    };
+    lock(&app.state::<PanelPermissions>().pages).insert(guest, page);
 }
 
 /// The guest has gone: whatever it asks from now on is refused.
 pub fn closed<R: Runtime>(app: &AppHandle<R>, guest: u32) {
-    if let Some(state) = app.try_state::<PanelPermissions>() {
-        lock(&state.pages).remove(&guest);
-    }
+    lock(&app.state::<PanelPermissions>().pages).remove(&guest);
 }
 
 /// A guest's page asked: `answer` is told once, never on the caller's stack
@@ -205,10 +219,21 @@ fn decide<R: Runtime>(
     let Some(current) = broker_for(app, guest, asked) else {
         return answer.give(false);
     };
+    // The answers are stored by now, and seeded before the page hears one:
+    // its first notification is held to them. Not `current`, which holds
+    // the broker that holds this.
+    let (app, profile, store) = (
+        app.clone(),
+        current.profile.clone(),
+        Arc::clone(&current.store),
+    );
     current.broker.request(
         Some(&GuestPage::new(u64::from(guest), page_url)),
         &ask.permission,
-        move |granted| answer.give(granted),
+        move |granted| {
+            seed(&app, &profile, &store.list());
+            answer.give(granted)
+        },
         Some(&ask.details),
     );
 }
@@ -273,9 +298,7 @@ fn half<R: Runtime>(
 /// The page went away: what it was asking is a Block, and what it asks
 /// next is a new document's. Nothing to do before any page has asked.
 pub fn cancel<R: Runtime>(app: &AppHandle<R>, guest: u32) {
-    let Some(state) = app.try_state::<PanelPermissions>() else {
-        return;
-    };
+    let state = app.state::<PanelPermissions>();
     if let Some(page) = lock(&state.pages).get_mut(&guest) {
         page.document += 1;
     }
@@ -344,7 +367,9 @@ pub async fn side_panel_permission_remove<R: Runtime>(
         let current = current(&app);
         current.store.load();
         current.store.remove(&origin, permission.as_deref());
-        current.store.list()
+        let sites = current.store.list();
+        seed(&app, &current.profile, &sites);
+        sites
     })
     .await
     .unwrap_or_default()
