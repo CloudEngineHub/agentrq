@@ -192,6 +192,13 @@ impl<R: Runtime> ShellState<R> {
         self.refresh_tray(app);
     }
 
+    /// Another profile's workspaces are no use in this one's tray, nor for its
+    /// New Task shortcut.
+    pub fn forget_recent_workspaces(&self, app: &AppHandle<R>) {
+        *self.recent_workspaces.lock().unwrap() = RecentWorkspaces::default();
+        self.refresh_tray(app);
+    }
+
     /// Re-render the tray menu and tooltip with the latest unread count and recent workspaces.
     pub fn refresh_tray(&self, app: &AppHandle<R>) {
         let unread = self.unread_count();
@@ -661,6 +668,16 @@ mod tests {
 
         // Unknown id is ignored
         handle_tray_menu_event(&handle, "unknown-id");
+    }
+
+    #[test]
+    fn mock_app_forgets_the_last_profiles_workspaces() {
+        let (_app, handle) = test_app();
+        init(&handle).unwrap();
+        let state = handle.state::<ShellState<tauri::test::MockRuntime>>();
+        state.touch_recent_workspace(&handle, "ws5", Some("Team 5"));
+        state.forget_recent_workspaces(&handle);
+        assert!(state.recent_workspaces.lock().unwrap().list().is_empty());
     }
 
     #[test]
