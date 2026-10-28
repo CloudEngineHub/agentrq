@@ -358,7 +358,14 @@ export function useExtensionCatalogue({ bridge = globalThis.window?.agentrq?.ext
     error.value = '';
     notice.value = '';
 
-    const found = await bridge.chooseFolder();
+    let found;
+    try {
+      found = await bridge.chooseFolder();
+    } catch (err) {
+      // Tauri rejects with the bare reason; a JavaScript bridge, with an Error.
+      error.value = typeof err === 'string' ? err : err.message;
+      return;
+    }
     if (refusedForNode(found, chooseFolder)) return;
     // Cancelling a file dialog is not an error and must not read as one.
     if (found?.cancelled) return;
