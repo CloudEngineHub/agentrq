@@ -9,7 +9,7 @@
 
 - **Pure logic goes in `core/`**, which has no Tauri dependency and a 100% line
   gate. `src-tauri/src/lib.rs` is wiring only and is outside the gate.
-- **`chrome.rs`, `app_menu.rs`, `side_panel/`'s platform files and `handlers.rs`, and `oauth_window/handlers.rs`
+- **`chrome.rs`, `app_menu.rs`, `side_panel/`'s platform files and `handlers.rs`, `notify/macos.rs`, and `oauth_window/handlers.rs`
   are wiring and outside the coverage gate too**; a rule goes in `core/` or a
   gated file with its test. `side_panel.rs` is gated: llvm-cov counts a closure
   per generic instance, so keep closures out of its commands. An async command whose
@@ -264,6 +264,11 @@
   older one is dropped.
 - **Call `shell::page_leaving` before `main` is replaced or sent elsewhere**; its
   `Started` comes too late, and a click in between is lost.
+- **On macOS the shell posts its own notifications (`notify/macos.rs`), never
+  through the plugin.** notify-rust gives up waiting for the click about a second
+  after posting on macOS 27, so a click only focused the app; the route rides in
+  `userInfo` to a delegate of ours. Not `UNUserNotificationCenter`: it refuses
+  an ad-hoc-signed build, and only tags are Developer ID signed.
 - **Register the notification plugin as `notify::ShellOnly`, never bare.** Its
   init script replaces `window.Notification` in every webview, a guest's too,
   with one that calls commands no capability grants. A site could then never
