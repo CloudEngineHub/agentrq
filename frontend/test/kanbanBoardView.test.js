@@ -200,6 +200,43 @@ describe('KanbanBoardView', () => {
     expect(order('Task d3', el)).toBeLessThan(order('Task d1', el))
   })
 
+  it('names the agent on a card that one has moved, and on none other', async () => {
+    byStatus.ongoing = [task('o1', 'ongoing', { agent: 'claude-code' })]
+    const { card } = await mount()
+    const agent = (text) => card(text).querySelector('[data-test="card-agent"]')
+    expect(agent('Task o1').textContent.trim()).toBe('claude-code')
+    expect(agent('Task o1').title).toBe('Agent: claude-code')
+    expect(agent('Task n1')).toBeNull()
+  })
+
+  it('draws the agent’s own icon beside its name, and none for an agent it does not know', async () => {
+    byStatus.ongoing = [
+      task('o1', 'ongoing', { agent: 'claude-code' }),
+      task('o2', 'ongoing', { agent: 'pi' }),
+      task('o3', 'ongoing', { agent: 'my-own-agent' }),
+    ]
+    const { card } = await mount()
+    const icon = (text) => card(text).querySelector('[data-test="card-agent"] [data-test="agent-icon"]')
+    expect(icon('Task o1').tagName).toBe('IMG')
+    expect(icon('Task o1').getAttribute('src')).toContain('claude-agent')
+    // An SVG goes in as markup, so a one-colour icon takes the text's colour.
+    expect(icon('Task o2').tagName).toBe('SPAN')
+    expect(icon('Task o2').querySelector('svg')).not.toBeNull()
+    expect(icon('Task o3')).toBeNull()
+    expect(card('Task o3').querySelector('[data-test="card-agent"]').textContent.trim()).toBe('my-own-agent')
+  })
+
+  it('names the agent the moment a live update brings one, and keeps it through one that does not', async () => {
+    const { card } = await mount()
+    const agent = (text) => card(text).querySelector('[data-test="card-agent"]')
+    events.value = [{ type: 'task.updated', payload: task('n1', 'ongoing', { agent: 'codex', updatedAt: '2026-09-28T10:00:00Z' }) }]
+    await settle()
+    expect(agent('Task n1').textContent.trim()).toBe('codex')
+    events.value = [...events.value, { type: 'task.updated', payload: task('n1', 'blocked', { updatedAt: '2026-09-28T11:00:00Z' }) }]
+    await settle()
+    expect(agent('Task n1').textContent.trim()).toBe('codex')
+  })
+
   it('names no workspace on a card when the board is one workspace’s', async () => {
     const { el } = await mount()
     expect(el.querySelector('[data-test="card-workspace"]')).toBeNull()
